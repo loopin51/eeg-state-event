@@ -1,0 +1,39 @@
+# D-069 (registered before results): direction 2 minimal version on ds004408.
+#   S0  = Broderick et al. (2018) semantic-dissimilarity TRF with sentence context and a group cluster permutation test.
+#   TRF = nested forward models A -> B -> C_static -> C (+ C', free attribution, context-shuffle control),
+#         judged by forward-model identification (Kay et al. 2008) mean rank percentile gains.
+# Word features: data/cache/ds004408/word_features.npz (scripts/ds004408_word_features.py).
+subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+pool_exclude: [1, 15]            # P0-a non-passers (D-060); excluded from the pooled training/evaluation pool, reported in all19
+run_folds: 5                     # 5 folds of 4 consecutive runs (D-059)
+lambdas_log10: [-3, 4]           # ridge penalty grid 10^-3 .. 10^4 times the mean diagonal; picked by 4-group CV on training runs
+seed: 0
+
+s0:
+  fs: 64
+  lags_ms: [-100, 800]
+  test_window_ms: [200, 600]
+  boundaries: punct              # sentence ends from restored punctuation; sensitivity: pause (gap >= 0.30 s)
+  subjects: all                  # all 19 primary; the 17 P0-a passers as sensitivity
+  roi: {center: CPz, n_channels: 32}
+  cluster: {tail: -1, threshold_p: 0.05, n_permutations: 10000, roi_share: 0.5}
+  control: context_shuffle       # context = content words of a random other sentence in the same run
+  report_only: [value_shuffle]   # dissimilarity values permuted among content words within each run
+
+trf:
+  fs: 20
+  lags_ms: [-100, 700]
+  pca_k: 16                      # fold-internal PCA of the word vectors; sensitivity 32 (reported only)
+  models: [A, B, Cs, C, Cp, A_ctx, C_shuf]
+  chunk_s: 3.0
+  n_candidates: 20               # query + 19 nearest chunks of the same run (D-061 neighbour layer)
+  sentence_min_s: 1.5            # secondary: restored-sentence windows, 20 neighbouring sentences
+  shifts: 100
+  min_shift_s: 10
+  boot: 1000                     # refit bootstrap over subjects + pigeonhole over query chunks
+  alpha_f1: 0.05                 # one-sided, Holm over the 3 F1 hypotheses
+  alpha_tost: 0.05               # stop rule (outside F1): 90 % interval upper bounds
+  resid_gate_r2: 0.01
+  learning_curve_min: [5, 10, 20, 30, 45]
+
+out_dir: results/ds004408_s0_trf

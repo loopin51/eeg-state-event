@@ -1,0 +1,16 @@
+# D-083 steps 2-3: conversion of the required readout cosine c* into a forward-identification MRP gain b, computed on the
+# D-073 nested-TRF design (20 Hz, 3-s non-overlapping windows, query + 19 nearest windows of the same run, rank_pct).
+# The curve MRP_s(c) is computed before p* exists; D-089 only reads it at c* (docs/DECISIONS.md D-083).
+pooled_predictions: results/ds004408_oracle/pooled_predictions.npz   # D-068 (server only, git-excluded)
+trf_config: configs/ds004408_s0_trf.yaml                            # subjects, pool_exclude, trf.fs/lags/chunk_s/n_candidates, lambdas
+mrp_B: 0.5972480791582239                                           # D-073 pooled-17 MRP of model B (trf_nested.json mrp_pool.B)
+noise:
+  types: [residual, isotropic]   # residual = registered (D-083); isotropic = sensitivity
+  scale_grid: {start: -1.0, stop: 2.0, num: 31}   # log10 of noise scale relative to target energy
+  draws: 50
+  extend_step: 0.5               # if c* falls outside the curve, the stop is raised by this until covered (done in D-089)
+calibration:
+  env_forward: true              # forward envelope-only TRF on the D-073 windows (pool 17) vs observed backward EEG->ENV
+seed: 0
+sigma_out: data/cache/d3_bconv/sigma_resid_txt.npz                   # D-068 residual covariance, trace 1, reused by D-087/D-089
+out_dir: results/d3_bconv

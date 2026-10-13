@@ -1,0 +1,16 @@
+# D-093 (registered before any B1 test result): error structure of the stage B B1 decoder transferred to the direction-3
+# device (D-083: "B1 confusion matrix ... registered separately after B1"). Stage estimate reads the B1 within-run score
+# matrices (main_s{s}_r{r} in scores.npz of the 25 cross-fit jobs) and the segment texts; stage pstar builds the structure on
+# the D-086/D-087 test trials and computes p* with the D-089 procedure.
+b1_runs: results/runs/*_stageB_b1_A4_k*_f[0-4]        # the 25 registered jobs (smoke folders excluded by the pattern)
+b1_config: configs/stageB_b1.yaml                    # window, pool, subject folds
+word_features: data/cache/ds004408/word_features.npz
+device_config: configs/d3_device.yaml
+min_sep_s: 3.0             # distractors of a query: same-run segments whose onset differs by >= 3 s (no shared audio)
+k_device: 20               # measured 20-candidate accuracy: 19 distractors drawn from the query's distractor set
+boot: 1000                 # pigeonhole subject x run bootstrap (D-085 interval method)
+seed: 20261093
+draws: 200                 # Monte Carlo draws per device trial for the structure's evidence distribution
+a_max: 64.0                # bisection upper bound of the information scale a
+results: results/d3_device/b1_structure.json
+pstar_results: results/d3_device/pstar_b1.json

@@ -1,0 +1,28 @@
+# D-092 preparation: GPU memory and step time of the REVE front-end (random initialisation, no pretrained weights)
+# and of the Défossez front-end at the Alice EEG input size. Weight values do not change memory use.
+input:
+  n_channels: 61            # Alice EEG (DRUM release): 61 EEG channels
+  seconds: 3.0              # window -0.5..2.5 s as in stage A / B1
+  reve_sfreq: 200           # REVE input rate (paper: 200 Hz, 1 s patches with 0.1 s overlap)
+  defossez_sfreq: 120       # Défossez front-end rate (stage A)
+target:
+  n_features: 1024          # wav2vec 2.0 large hidden size (layers 14-18 mean)
+  sfreq: 120                # target time grid, T = 360
+n_subjects: 33
+encoders:                   # src/configs/encoder/{base,large}.yaml, reve_eeg commit 06a7059
+  base: {embed_dim: 512, depth: 22, heads: 8, head_dim: 64, mlp_dim_ratio: 2.66, use_geglu: true, freqs: 4, patch_size: 200, patch_overlap: 20}
+  large: {embed_dim: 1216, depth: 22, heads: 19, head_dim: 64, mlp_dim_ratio: 2.66, use_geglu: true, freqs: 5, patch_size: 200, patch_overlap: 20}
+defossez:                   # configs/stageA_train_A4.yaml model block
+  merger_channels: 270
+  pos_dim: 2048
+  merger_dropout: 0.2
+  initial_linear: 270
+  hidden: 320
+  depth: 10
+batches: [64, 128, 256]
+precisions: [fp32, bf16]
+modes: [finetune, frozen]   # frozen = REVE encoder without gradients, head and subject layer trained
+steps: 6                    # first 2 steps are warm-up and excluded from the step time
+lr: 1.0e-4
+gpu_budget_gb: 10.5         # RTX 4070 12 GB minus desktop graphics and margin
+out: results/reve_memory_probe/memory.json

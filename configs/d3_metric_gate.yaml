@@ -1,0 +1,27 @@
+# Direction 3, first gate (faculty review, direction 3 experiment 1): validation of similarity metrics for the
+# faithfulness device. Pair lists are built and hashed before any metric is computed (D-075).
+out_dir: data/cache/d3_metric_gate
+seed: 20261010
+data:
+  mrpc_dir: data/raw/metric_gate/glue/mrpc          # GLUE MRPC parquet (test split)
+  stsb_dir: data/raw/metric_gate/stsb               # sentence-transformers/stsb (scores in [0, 1] = gold / 5)
+  dailydialog_dir: data/raw/dailydialog/hf_parquet/default
+pairs:
+  t1_len_tol_words: 1          # unrelated partner has the paraphrase partner's word count +- 1
+  t2_pos_min: 0.8              # STS-B gold >= 4.0 (equivalent or mostly equivalent)
+  t2_neg_range: [0.2, 0.4]     # STS-B gold 1.0-2.0 ("not equivalent but on the same topic" / "share some details")
+  t3_n_items: 1000             # DailyDialog test utterances whose length bias is measured
+  t3_n_refs: 100               # random utterances from other dialogues each item is compared with
+  resid_fit_n: 20000           # DailyDialog train utterances used to fit the length regression of residual metrics
+metrics:
+  embedders:
+    e5: {model: intfloat/multilingual-e5-base, prefix: "query: "}
+    mpnet: {model: sentence-transformers/all-mpnet-base-v2, prefix: ""}
+    bge: {model: BAAI/bge-base-en-v1.5, prefix: ""}
+  nli: {model: cross-encoder/nli-deberta-v3-base}
+  batch_size: 128
+gate:
+  t1_auc_lower: 0.95           # paraphrase vs length-matched unrelated, bootstrap 95% lower bound
+  t2_auc_lower: 0.85           # same-meaning vs same-topic different-meaning, bootstrap 95% lower bound
+  t3_abs_rho: 0.10             # length vs mean similarity to unrelated utterances: 95% interval inside [-0.10, 0.10]
+  n_boot: 1000

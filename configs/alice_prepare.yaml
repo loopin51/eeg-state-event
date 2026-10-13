@@ -1,0 +1,59 @@
+# D-092 stage 0: Alice EEG caches (DRUM derivative of Brennan & Hale 2019, Brodbeck et al. 2021), registered before any
+# Alice decoder or baseline number. One continuous recording per subject; the 12 audio segments are cut out and stored
+# back to back (segment k = "run" k), so that windows never cross a segment.
+raw_root: data/raw/alice_eeg/drum/extracted
+reve_positions: data/raw/reve_weights/reve-positions/positions.json   # brain-bzh/reve-positions@befa5b5 (D-092 supplement 2)
+out_dir: data/cache/alice_eeg
+n_segments: 12
+eeg:
+  n_channels: 61                 # channels '1'..'61' (easycap-M10 numbering of the data provider); VEOG and the audio channel dropped
+  sources:
+    eeg:                         # technical gate A′ (D-072 registered setting): no extra filter, no re-reference
+      sample_rate: 120
+      highpass_hz: 0
+      scaling: robust            # per recording and channel: (x - median) / IQR over the used segments; clamp 20 at load time
+    eeg_hp05:                    # Défossez arm (D-085 A4 moved to Alice): 0.5 Hz zero-phase FIR (MNE default) at 500 Hz
+      sample_rate: 120
+      highpass_hz: 0.5
+      scaling: robust
+    reve:                        # REVE arm (REVE specification): bad channels interpolated (spherical spline), 0.5-99.5 Hz, 200 Hz
+      sample_rate: 200
+      highpass_hz: 0.5
+      lowpass_hz: 99.5
+      interpolate_bads: true
+      scaling: robust_z          # per recording and channel over the used segments: median / (IQR / 1.349). D-092 supplement 3: the
+                                 # registered mean / SD z-score let S26's artifacts (segments 8-9) shrink the rest to SD 0.015
+      clip_sd: 15
+  robust_quantiles: [25, 75]
+reve_alignment:                  # similarity fit of the file positions to the REVE bank on standard-name sites (D-092)
+  anchors: {'1': Cz, '8': Fz, '14': Pz, '11': C4, '17': C3, '35': Fpz, '39': T8, '43': Oz, '47': T7}   # easycap-M10 template site -> 10-20 name
+  site_match_mm: 5.0             # a file channel is the template site if their positions are this close
+  max_mean_error_m: 0.01         # stop if the mean anchor error after the fit exceeds 1 cm
+split_aprime:                    # technical gate A′: brainmagick-style sentence blocks (as stage A)
+  min_block_s: 6.0
+  test_ratio: 0.2
+  valid_ratio: 0.1
+  seed: 12
+split_main:                      # D-092 main comparison
+  segment_folds: [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]]
+  valid_segment: [4, 7, 10, 1]   # first segment of the next fold (cyclic)
+  subject_fold_sizes: [7, 7, 7, 6, 6]
+  subject_seed: 20261011         # numpy default_rng(seed).permutation(sorted subject numbers)
+  guard_s: 10.0                  # training / validation / calibration windows whose EEG span is within this of a test-fold boundary are dropped
+window:
+  tmin: -0.5
+  tmax: 2.5
+  offset_s: 0.15
+  train_step_s: 0.5
+audio:
+  sample_rate: 16000
+  wav2vec_model: facebook/wav2vec2-large-xlsr-53
+  wav2vec_layers: [14, 15, 16, 17, 18]
+  feature_rate: 120
+  feature_dtype: float16
+noise_pool:                      # report-only pool (D-092 supplement 4, cache statistics only, before any decoder or baseline number)
+  sources: [eeg_hp05, reve]      # before clamp / clip effects: ratio of per-channel SD to IQR/1.349 inside each present segment
+  out: results/alice_prep/noise_stats.json
+  ratio_source: eeg_hp05         # unclamped robust-scaled cache (the reve cache is clipped at 15, which compresses the ratio)
+  threshold: 10.0                # chosen from the statistics only: gap between 3.57 (S25) and 16.8 (S44)
+  report_pool_exclude: [22, 26, 42, 44, 45]   # pool Q1 = the other 28 subjects (report only, never in the verdict)

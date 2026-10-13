@@ -1,0 +1,43 @@
+# Direction 3, step 3 (faculty review direction 3, experiments 3-4): synthetic-evidence simulator of the faithfulness
+# device (D-087). Stage generate: for every candidate trial (D-086), greedy LM outputs with no evidence ("alone") and with
+# each of the 20 candidates as the evidence text; reciprocal rank of the true intent among the 20 candidates by the e5
+# residual cosine (D-076) to each output. Stage simulate (CPU): evidence draws at retrieval accuracy p under the error
+# structures U and R are lookups into that table (D-083), so the false-positive gate (D-088) and p* (D-089) need no new
+# generation.
+candidates: data/cache/d3_candidates/candidates_test.jsonl
+candidates_manifest: data/cache/d3_candidates/manifest_test.json
+resid_fit: data/cache/d3_metric_gate/resid_fit.tsv
+sigma: data/cache/d3_bconv/sigma_resid_txt.npz           # D-068 residual covariance (R structure), trace 1
+out_dir: data/cache/d3_device
+seed: 20261012
+lm:
+  model: microsoft/Phi-4-mini-instruct                     # a different family from the candidate generator (Qwen3.5-4B)
+  dtype: bfloat16
+  max_new_tokens: 64
+  batch_prompts: 32
+  decoding: greedy
+metrics:
+  primary: {model: intfloat/multilingual-e5-base, prefix: "query: "}
+  sensitivity: {model: BAAI/bge-base-en-v1.5, prefix: ""}
+simulate:
+  p_grid: [0.05, 0.075, 0.10, 0.15, 0.20, 0.30, 0.50, 0.70, 1.00]
+  r_calib_draws: 200             # Monte Carlo draws per trial for the R-structure evidence distribution
+  logit_sd_subject: 0.59         # D-083: between-subject logit SD of retrieval accuracy (stage A, pool 17)
+  z_power: 2.486                 # z_0.95 + z_0.80
+  N: [100, 200, 500, 1000]
+  S: [1, 10, 17]
+  boot: 1000
+  seconds_per_selection: 3       # bits/min convention (D-072)
+  b_cell: [500, 17]              # (N, S) of the registered b (D-083)
+  bconv_curve: results/d3_bconv/curve.json
+  mrp_B: 0.5972480791582239      # D-073 pooled-17 MRP of model B
+  results_dir: results/d3_device
+  report_bands: [[4, 10], [11, 15], [16, 20]]   # D-089: target word-count bands for Delta reporting (not a verdict)
+  gate:                          # D-088 zero-information false-positive gate (D-066 item 5)
+    reps: 4000                   # all reported cells (D-066 item 5 minimum)
+    primary_reps: 40000          # the four gate cases at primary_cell, e5 (D-088: 'both' reduces to swap when alone rejects at zero information)
+    alpha: 0.05                  # one-sided t test per simulated experiment (shared design: item-level t with Johnson 1978 correction)
+    cp_max: 0.06                 # one-sided Clopper-Pearson 95% upper bound of the false-positive rate
+    primary_cell: [500, 17]
+    designs: [independent, shared]   # independent = p* variance model; shared = same trials for all subjects (subject AND item t)
+    primary_stat: both           # device claim = real beats swap AND alone (intersection-union, p* = max of the two)

@@ -1,0 +1,37 @@
+# Stage A corrected reproduction (D-078 selection, D-080): released settings + common average reference + 0.5 Hz highpass cache.
+cache_dir: data/cache/stageA_ds004408
+variant: clip_w2v            # clip_w2v | clip_mel | base_mel | clip_w2v_nosubj
+seed: 2036                   # paper seeds 2036, 2037, 2038
+split_unit: block            # block = paper sentence-block split (stage A); run = run-level split (stage B, set separately)
+eeg:
+  source: eeg_hp05           # 0.5 Hz zero-phase FIR highpass at 512 Hz before resampling (configs/stageA_prepare_hp05.yaml)
+  clamp: 20.0
+  reference: car             # D-078 diagnostic A4
+  offset_s: 0.15             # brain signal shifted 150 ms into the future relative to the speech features
+  baseline_s: 0.5            # subtract the per-channel mean of the first 0.5 s of each window (tmin -0.5 to 0)
+window:
+  tmin: -0.5
+  tmax: 2.5
+  train_step_s: 0.5          # training / validation windows every 0.5 s
+features:
+  w2v: w2v_block             # per-block wav2vec features (no audio from another split)
+  mel: mel_block
+model:
+  merger_channels: 270
+  pos_dim: 2048
+  merger_dropout: 0.2
+  initial_linear: 270
+  hidden: 320
+  depth: 10
+optim:
+  lr: 3.0e-4
+  batch_size: 256
+  updates_per_epoch: 1200
+  max_epochs: 200
+  patience: 10               # early stop on validation loss
+  precision: fp32            # fp32 | bf16
+eval:
+  topk: [1, 5, 10]
+  score_chunk: 128
+out_root: results/runs
+meters_suffix: _A4           # results/baselines/stageA_de_order_<feature>_A4.json

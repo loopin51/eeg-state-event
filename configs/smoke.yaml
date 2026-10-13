@@ -1,0 +1,62 @@
+name: smoke
+datasets:
+- seediv
+- deap
+cache_root: data/cache
+val_frac: 0.5
+seed: 0
+subjects:
+  seediv:
+  - 0
+  - 1
+  - 2
+  - 3
+  deap:
+  - 0
+  - 1
+  - 2
+  - 3
+model:
+  d: 64
+  layers: 2
+  heads: 4
+  ffn: 128
+  d_event: 32
+  d_state: 16
+  d_tok: 16
+  n_virtual: 8
+  dropout: 0.0
+  path_drop: 0.0
+  mask_ratio: 0.4
+  alphas:
+  - 1.0
+  - 1.0
+  - 0.1
+  - 0.1
+  temp: 0.1
+batch:
+  coh_subjects: 2
+  coh_trials: 2
+  align_blocks: 1
+  align_subjects: 2
+  align_keys: 2
+  n_random: 2
+optim:
+  lr: 0.001
+  weight_decay: 0.05
+  betas:
+  - 0.9
+  - 0.98
+  warmup_frac: 0.1
+  epochs: 1
+  grad_clip: 1.0
+  ema_start: 0.99
+  grl_ramp_frac: 0.2
+eval:
+  every_steps: 10
+  val_batches: 2
+  patience: 100
+  ema_beta: 0.9
+max_steps: 30
+ckpt_every_steps: 1000
+num_workers: 0

@@ -1,0 +1,23 @@
+# Stage A (D-065, faculty direction 1): ds004408 cache for the Défossez et al. (2023) reproduction.
+# Settings follow the released brainmagick code (clip_conv model, broderick2019 selection) unless noted.
+raw_root: data/raw/ds004408
+word_features: data/cache/ds004408/word_features.npz   # sentence ends restored from punctuation (D-069 session)
+out_dir: data/cache/stageA_ds004408
+subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+n_runs: 20
+eeg:
+  sample_rate: 120
+  name: eeg_hp05
+  highpass_hz: 0.5               # D-078 diagnostic variant
+  robust_quantiles: [25, 75] # per recording and channel: (x - median) / IQR; clamping (20) is applied at load time
+split:
+  min_block_s: 6.0          # consecutive sentences merged until a block exceeds this duration
+  test_ratio: 0.2
+  valid_ratio: 0.1
+  seed: 12                  # brainmagick split_assign_seed default
+audio:
+  sample_rate: 16000
+  wav2vec_model: facebook/wav2vec2-large-xlsr-53
+  wav2vec_layers: [14, 15, 16, 17, 18]   # released default (the paper text says "last four layers"; recorded deviation)
+  mel: {n_fft: 512, hop: 128, n_mels: 120, log_eps: 1.0e-5}
+  feature_dtype: float16

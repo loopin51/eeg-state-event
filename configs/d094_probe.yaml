@@ -1,0 +1,16 @@
+# D-094 stage 2 (diagnosis, validation runs only): B1 shared network inside its first 1,200 updates, evaluated every 150.
+# Same split, seed, model, batch, window and fixed validation batches as configs/stageB_b1.yaml (B1 job k0_f0). The test runs
+# (run fold 0: runs 1-4) are never read. Candidates are chosen on mrp_trainers only; target MRP (uncalibrated) is report only.
+base_config: configs/stageB_b1.yaml
+decoder_setting: A4
+subject_fold: 0              # trainers include sub-002 and sub-013 (the two subjects with >= 10% bad channels)
+run_fold: 0                  # validation runs 5 and 13
+total_updates: 1200          # = one B1 epoch
+eval_every: 150
+experiments:
+  E0:  {lr: 3.0e-4, exclude_bad: false}                     # A4 as registered (reproduces B1 k0_f0 epoch 0)
+  E0P: {lr: 3.0e-4, exclude_bad: false, phaserand: true}    # same, phase-randomised EEG (memorisation without stimulus)
+  E1:  {lr: 1.0e-4, exclude_bad: false}
+  E2:  {lr: 3.0e-4, exclude_bad: true}                      # CAR and spatial attention ignore BIDS channels.tsv "bad" marks
+  E3:  {lr: 1.0e-4, exclude_bad: true}
+out_dir: results/d094_probe

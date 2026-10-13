@@ -1,0 +1,84 @@
+# D-092 training: technical gate A′ and the two cross-fitted readouts (Défossez, REVE-Base) on Alice EEG.
+# Registered in D-092 (+ supplements 1-6) before any Alice decoder number.
+cache_dir: data/cache/alice_eeg
+seed: 2036
+window:
+  tmin: -0.5
+  tmax: 2.5
+  offset_s: 0.15
+  train_step_s: 0.5
+features:
+  aprime: w2v_block          # A′: per-block wav2vec (stage A)
+  main: w2v_seg              # main split: wav2vec on each whole segment
+defossez_model:              # configs/stageA_train_A4.yaml
+  merger_channels: 270
+  pos_dim: 2048
+  merger_dropout: 0.2
+  initial_linear: 270
+  hidden: 320
+  depth: 10
+aprime:                      # technical gate (D-092): D-072 registered setting, 33 subjects, fp32
+  source: eeg                # no extra filter, no re-reference
+  reference: none
+  invalid: flat              # only flat channels invalid (registered setting has no bad-channel handling)
+  clamp: 20.0
+  baseline_s: 0.5
+  lr: 3.0e-4
+  batch_size: 256
+  # D-092 supplement 8 (A′2): evaluation every 150 updates, stop after 4 units without improvement but not before 1,200
+  # updates, best state by validation loss, at most 240,000 updates. Job 171 (A′) used 1,200-update epochs, patience 10.
+  updates_per_epoch: 150
+  max_epochs: 1600
+  patience: 4
+  min_epochs: 8
+  run_name: alice_aprime2     # A′ (job 171) was alice_aprime
+  precision: fp32
+  report_bf16_eval: true     # D-092 supplement 2 (d): same best model scored again under bf16 autocast (report only)
+  stop_top10: 0.129          # half of the paper's 25.7%
+arms:
+  defossez:
+    source: eeg_hp05
+    reference: car           # over good channels (provider bad marks and flat channels excluded; D-092)
+    invalid: bad_or_flat
+    clamp: 20.0
+    baseline_s: 0.5
+    lr: 3.0e-4
+  reve:
+    source: reve             # bad channels interpolated, robust z, clip 15 (D-092 supplement 3)
+    positions: positions_reve.npy
+    weights: data/raw/reve_weights/reve-base/model.safetensors   # brain-bzh/reve-base@dc2a075
+    encoder: {embed_dim: 512, depth: 22, heads: 8, head_dim: 64, mlp_dim_ratio: 2.66, use_geglu: true, freqs: 4, patch_size: 200, patch_overlap: 20}
+    head_rank: 32
+    checkpointing: true
+    lr_head: 3.0e-4          # head, pooling and subject layer
+    encoder_lr_grid: [1.0e-5, 3.0e-5, 1.0e-4]   # chosen on subject fold 0 x segment fold 0 ({1-3}), validation segment 4
+    encoder_lr: null         # set after the selection runs (recorded in D-092 before the main runs)
+main:
+  precision: bf16            # D-092 supplement 2
+  batch_size: 256
+  # D-092 supplement 8 (both arms, same rule as D-091 supplement 4): 150-update units, patience 4, not before 1,200 updates,
+  # at most 240,000 updates (registered before: 1,200-update epochs, patience 3, at most 200 epochs)
+  updates_per_epoch: 150
+  max_epochs: 1600
+  patience: 4
+  min_epochs: 8
+  valid_batches: 20
+calibration:
+  lr: 3.0e-4
+  batch_size: 256
+  # D-092 supplement 8 (both arms): 150-update units, patience 4, not before 1,200 updates, at most 26 units (3,900 updates;
+  # registered before: 200-update units, patience 3, at most 20 units = 4,000 updates)
+  updates_per_epoch: 150
+  max_epochs: 26
+  patience: 4
+  min_epochs: 8
+  # a target without its validation segment (S26, S34, S35, S36 in segment fold 3, validation segment 1) uses the next
+  # non-test segment (2) as its validation segment and drops it from its own training segments
+eval:
+  score_chunk: 128
+  pre_shift_s: 10.0
+guard_s: 10.0
+check:
+  log_output_std: true       # std across queries of the decoder output (mean over units); collapse is not taken as a code error by itself
+check_min_output_std: 1.0e-3 # first job of each batch: scripts/alice_check.py on validation data only (B1 rule)
+out_root: results/runs

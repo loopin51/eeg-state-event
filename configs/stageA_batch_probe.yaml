@@ -1,0 +1,11 @@
+# Stage A week-1 batch measurement (faculty agenda A: a batch below 128 makes the run a "modified reproduction").
+n_channels: 128          # ds004408 BioSemi 128
+sample_rate: 120
+window_s: 3.0
+out_dim: 1024            # wav2vec2-large-xlsr-53 hidden size
+n_subjects: 19
+batch_sizes: [32, 64, 128, 192, 256, 320]
+precisions: [fp32, bf16]
+steps: 20                # timed steps after 3 warm-up steps
+lr: 3.0e-4
+out_dir: results/stageA_batch_probe

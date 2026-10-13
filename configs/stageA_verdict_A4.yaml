@@ -1,0 +1,16 @@
+# Stage A verdicts for the corrected reproduction A4 (D-080: CAR + 0.5 Hz highpass, configs/stageA_train_A4.yaml).
+# Thresholds, pool, bootstrap and seed are identical to configs/stageA_verdict.yaml (D-082); only runs, phaserand and out differ.
+# The D-080 diagnostic run 2026-10-10_stageA_clip_w2v_s2036_A4carhp05_diag is not part of this verdict.
+runs_root: results/runs
+runs:                         # variant -> run folder per seed
+  clip_w2v: [2026-10-11_stageA_clip_w2v_s2036_A4, 2026-10-11_stageA_clip_w2v_s2037_A4, 2026-10-11_stageA_clip_w2v_s2038_A4]
+  clip_mel: [2026-10-11_stageA_clip_mel_s2036_A4, 2026-10-11_stageA_clip_mel_s2037_A4, 2026-10-11_stageA_clip_mel_s2038_A4]
+  base_mel: [2026-10-11_stageA_base_mel_s2036_A4, 2026-10-11_stageA_base_mel_s2037_A4, 2026-10-11_stageA_base_mel_s2038_A4]
+  clip_w2v_nosubj: [2026-10-11_stageA_clip_w2v_nosubj_s2036_A4, 2026-10-11_stageA_clip_w2v_nosubj_s2037_A4, 2026-10-11_stageA_clip_w2v_nosubj_s2038_A4]
+phaserand: 2026-10-11_stageA_clip_w2v_s2036_A4_phaserand
+pool_exclude: [1, 15]         # D-061 pool: 17 subjects
+pass_top10: 0.089             # D-072: half of the paper's 17.7%
+sa1_excess: 0.084             # D-077: 8.9% minus the paper's chance 0.5%
+n_boot: 1000
+seed: 20261011
+out: results/stageA_verdict/verdict_A4.json

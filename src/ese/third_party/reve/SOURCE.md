@@ -1,0 +1,5 @@
+# REVE model code (architecture only)
+
+- Source: https://github.com/elouayas/reve_eeg (MIT License, see `LICENSE`), commit `06a7059a07c3dabd80aee60c3dbc1eca4bdbe1c7` (2026-03-20), files `hf/reve-base/modeling_reve.py`, `hf/reve-base/configuration_reve.py`, copied unchanged.
+- Only the architecture code is vendored; no weights are stored in git. The REVE-Base weights and the position bank were downloaded on the server on 2026-10-12 after user approval (D-092 supplement 2), pinned to `brain-bzh/reve-base@dc2a075c287bb2f6c04ee5875bd79535a0f7dba6` and `brain-bzh/reve-positions@befa5b57a455b77cf302daf610c2e9ed8140bace`, under the REVE Responsible Use License v1.0 (Section 2: downloading is acceptance). Server path: `data/raw/reve_weights/` (sha256 list in `SHA256SUMS.txt`). The HF `modeling_reve.py` differs from this copy only in formatting and in how `FourierEmb` trims dimensions, which is a no-op for Base (freqs 4 -> 256 = embed/2); the weights load into this copy with `strict=True`.
+- Encoder sizes (from `src/configs/encoder/{base,large}.yaml` of the same commit) are set in `configs/reve_memory_probe.yaml`.

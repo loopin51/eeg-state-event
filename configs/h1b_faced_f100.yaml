@@ -1,0 +1,57 @@
+name: h1b_faced_f100
+datasets:
+- faced
+cache_root: data/cache
+val_frac: 0.1
+seed: 0
+model:
+  d: 512
+  layers: 6
+  heads: 8
+  ffn: 2048
+  d_event: 256
+  d_state: 32
+  d_tok: 32
+  n_virtual: 32
+  dropout: 0.1
+  path_drop: 0.1
+  mask_ratio: 0.5
+  alphas:
+  - 0.0
+  - 1.0
+  - 0.0
+  - 0.0
+  temp: 0.1
+  center_in_batch: true
+  xcov_mode: mean
+  fast_highpass: false
+  slow_lowpass: false
+  use_predict: false
+  var_weight: 0.5
+batch:
+  coh_subjects: 8
+  coh_trials: 4
+  align_blocks: 2
+  align_subjects: 12
+  align_keys: 4
+  n_random: 16
+optim:
+  lr: 0.0003
+  weight_decay: 0.05
+  betas:
+  - 0.9
+  - 0.98
+  warmup_frac: 0.05
+  epochs: 60
+  grad_clip: 1.0
+  ema_start: 0.996
+  grl_ramp_frac: 0.2
+eval:
+  every_steps: 200
+  val_batches: 20
+  patience: 25
+  ema_beta: 0.9
+  signal: active
+ckpt_every_steps: 500
+num_workers: 8
+max_steps: 16800

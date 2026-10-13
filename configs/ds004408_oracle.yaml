@@ -1,0 +1,15 @@
+# Stage 0 (D-065, faculty direction 1): oracle upper-bound curves for the ds004408 3-s chunk identification.
+# Same chunks, features, targets and run folds as scripts/ds004408_identify_pool.py (D-061).
+exclude_from_pool: [1, 15]        # P0-a non-passers (D-060), not used for training; reported in all19
+targets: [TXT, ENV]               # e5 sentence embedding, stimulus envelope (wav2vec target is added in stage A)
+noise:
+  types: [isotropic, residual]    # residual = covariance of the actual pooled ridge residuals
+  scale_grid: {start: -1.0, stop: 1.5, num: 16}   # log10 of noise std relative to target rms
+  draws: 20
+designs:
+  local_n: 20                     # (i) 19 nearest chunks in the same run (D-059/D-061 design)
+  quartile_n: 20                  # (ii) 19 candidates drawn from one quartile of target-cosine distance (per quartile)
+  acoustic_n: 20                  # (iii) 19 chunks with the nearest acoustic features (other runs of the test fold)
+  pool_topk: [1, 10]              # (iv) rank among all chunks of the test fold
+seed: 0
+out_dir: results/ds004408_oracle

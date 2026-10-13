@@ -1,0 +1,17 @@
+# D-084 exploratory analysis (chosen after seeing the A4 results; not used for any verdict).
+# Re-evaluates finished stage A models from best.pt (no training) and keeps per-segment ranks, then recomputes top-10
+# on test segments whose EEG window stays at least `margin_s` away from every boundary between a test span and a
+# non-test block of the same run (run start / end do not count: the filter has no neighbour there).
+# Primary margin 3.3 s = half the 0.5 Hz zero-phase FIR length of the A4 cache (MNE default, 3.3 / 0.5 Hz = 6.6 s).
+runs_root: results/runs
+runs:
+  A4_clip_w2v: [2026-10-11_stageA_clip_w2v_s2036_A4, 2026-10-11_stageA_clip_w2v_s2037_A4, 2026-10-11_stageA_clip_w2v_s2038_A4]
+  A4_phaserand: [2026-10-11_stageA_clip_w2v_s2036_A4_phaserand]
+  reg_clip_w2v: [2026-10-10_stageA_clip_w2v_s2036, 2026-10-10_stageA_clip_w2v_s2037, 2026-10-10_stageA_clip_w2v_s2038]
+  reg_phaserand: [2026-10-10_stageA_clip_w2v_s2036_phaserand]
+margins_s: [0.0, 1.65, 3.3]   # 3.3 primary; 1.65 secondary; 0.0 = all segments (must reproduce metrics.json)
+primary_margin_s: 3.3
+pool_exclude: [1, 15]         # D-061 pool reported alongside 19 subjects
+n_boot: 1000
+seed: 20261011
+out_dir: results/stageA_boundary

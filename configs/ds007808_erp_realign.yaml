@@ -1,0 +1,31 @@
+# D-062: ds007808 auditory ERP re-check aligned to the acoustic onset (from the listening-audio monitor)
+raw_root: data/raw/ds007808
+sets:   # first run of each recording day
+  - {name: listening_sub-01, pattern: "sub-01/ses-*/eeg/*task-listening_acq-pangolin_run-*_eeg.edf"}
+  - {name: listening_sub-02, pattern: "sub-02/ses-*/eeg/*task-listening_acq-pangolin_run-*_eeg.edf"}
+  - {name: listeningcovert_sub-01, pattern: "sub-01/ses-*/eeg/*task-listeningcovert_acq-pangolin_run-*_eeg.edf"}
+n_eeg: 128
+monitor: [EEG129, EEG130]
+onset_detect:
+  band: [80, 550]
+  smooth_s: 0.01
+  search_s: [-0.3, 1.0]       # relative to events onset
+  pre_s: [-0.5, -0.1]         # silence reference, relative to events onset
+  frac: 0.25                  # threshold = pre median + frac * (95th percentile of search window - pre median)
+  max_dev_s: 0.1              # drop trials whose lag deviates from the run median lag by more than this
+  min_gap_s: 0.5              # drop trials whose previous listening segment ends less than this before the acoustic onset
+erp:
+  band: [1, 20]
+  fs_out: 200
+  window_s: [-0.2, 0.6]
+  good_sd_ratio: 5            # good channel: sd within [median/5, median*5]
+  drop_top_frac: 0.1
+  chan_block: 16
+metrics:
+  gfp_window_s: [0.08, 0.25]
+pass:
+  split_half_median: 0.5
+  gfp_ratio: 2.0
+  gfp_ratio_day_frac: 0.75
+  between_day_mean: 0.3
+out_dir: results/ds007808_erp_realign

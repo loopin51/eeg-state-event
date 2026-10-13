@@ -1,0 +1,15 @@
+# Stage B subject-layer calibration curve (D-090, registered before any curve result). Descriptive result, no alpha.
+# Re-uses the 25 B1 shared networks (results/runs/*_stageB_b1_<setting>_k<K>_f<F>/shared.pt) and only refits the target's
+# subject layer on k of its own training runs. Everything not listed here follows configs/stageB_b1.yaml (D-085).
+b1_config: configs/stageB_b1.yaml
+ks: [1, 2, 4, 8]             # k = 14 is the B1 adapter itself (re-evaluated here); 16 is impossible (14 training runs per fold)
+draw_seed: 20261014          # nested draw: permutation of the target's 14 training runs from default_rng([draw_seed, subject, run_fold]); k runs = first k
+valid_seed: 20261015         # fixed 20 validation batches per (subject, run fold) from default_rng([valid_seed, subject, run_fold])
+calib_seed: 20261016         # training batches from default_rng([calib_seed, subject, run_fold, k])
+contrasts: [k0_population, other_adapter, k14_b1]   # mean of training-subject layers; other targets' B1 adapters; own B1 adapter
+de:
+  out: results/baselines/stageB_calib_de.json         # DE + ridge fitted on the same k runs (CPU), same draws
+timing:                      # pre-registration timing job: validation runs only, one target, k in [1, 8]
+  ks: [1, 8]
+out_root: results/runs
+out: results/stageB_calib

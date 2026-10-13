@@ -1,0 +1,52 @@
+# Stage B B2 (D-091, registered before any B2 result): language information beyond acoustics. Decoder with a language target
+# (e5 length-residual embedding of the words in each 3-s window, D-076), ranked against acoustically paired candidates.
+# Everything not listed here follows configs/stageB_b1.yaml (D-085): split, subject cross-fitting, calibration, settings.
+b1_config: configs/stageB_b1.yaml
+seed: 2036
+language_target:
+  embedder: {model: intfloat/multilingual-e5-base, prefix: "query: "}   # D-076 primary metric
+  resid_fit: data/cache/d3_metric_gate/resid_fit.tsv                    # D-075 length-regression texts (fixed)
+  words_in_window: onset             # a word belongs to the window if its onset is in [t + tmin, t + tmax)
+  batch_size: 128
+  acoustic_residual:                 # D-091 amendment 3: per run fold, subtract the ridge prediction from the 210 primary pairing
+    features: [mel, env, f0, vf]     # features (fitted on the training-run grid windows with words, 7 groups of 2 runs) and
+                                     # re-standardise with the training statistics -> items.npz R_f{f}
+acoustic:
+  bin_s: 0.1                         # envelope / F0 time bins inside the 3-s window (30 bins)
+  yin: {frame_s: 0.04, hop_s: 0.01, fmin: 60.0, fmax: 400.0, threshold: 0.15, min_rms_db: -40.0,
+        lowpass: {resample_hz: 16000, cutoff_hz: 1000.0, order: 8}}   # D-091 amendment 2 (before any EEG result): primary F0 block
+                                                                        # after 16-kHz resampling + 1-kHz zero-phase low-pass; the
+                                                                        # registered original (16 kHz, no low-pass) is the f0raw block
+  blocks: [mel, env, f0]             # primary pairing distance = mean of the three block distances (z-scored per fold pool)
+  sensitivity_blocks: [mel]          # reported only (mel_within pool)
+pairs:                               # D-091 amendment 1 (before any result): primary pool is within-run
+  n_pairs: 19                        # 19 acoustic pairs + the true segment = 20 candidates
+  min_same_run_s: 30.0               # same-run candidates must be at least 30 s away
+  primary: within                    # within: same run only (queries with < 19 eligible candidates are dropped and counted)
+  sensitivity: [cross, mel_within, within_f0raw]   # cross: other test runs also eligible (former primary); mel_within: mel block
+                                                   # only, within-run; within_f0raw: F0 block without the low-pass (amendment 2)
+shared_training:                     # D-091 amendment 4 (from D-094, validation runs only): shared network evaluated every 150 updates
+  eval_every: 150                    # (same fixed 20 validation batches and CLIP loss as B1), early stop after 4 evaluations
+  patience_units: 4                  # (600 updates) without improvement, never before 1,200 updates (B1's first evaluation);
+  min_updates: 1200                  # best state kept; max = B1's 200 epochs x 1,200 updates. Calibration stage unchanged (B1).
+  max_updates: 240000
+car_exclude_bad: true                # amendment 4: CAR and the position mask also leave out BIDS `bad` channels (D-094 E2)
+meters:
+  acoustic_nl:                       # amendment 3, report only: random Fourier features of the standardised 210-d pairing features,
+    n_features: 2048                 # W ~ N(0, 1/210), b ~ U(0, 2 pi), then ridge (penalty grid logspace(-1, 6, 15), grouped CV as
+    seeds: [20261020, 20261021, 20261022, 20261023, 20261024]   # the other meters); amendment 5: reported as the mean and range
+                                     # over these 5 seeds
+eval:
+  pre_shift_s: 10.0
+  score_chunk: 128
+shift_null: {n_shift: 1000, min_shift_s: 30.0, seed: 20261017}
+bootstrap: {n_boot: 1000, seed: 20261018}
+verdict:
+  alpha: 0.025                       # inherited from B1 (D-085), only for the decoder test (ii)
+  sesoi: 0.02
+  meter_margin: 0.02                 # amendment 3: PRE / ORDER / ACOUSTIC judged on (MRP - own circular-shift null mean), one-sided
+                                     # 90% upper < margin (two-sided and raw reported); RUN, ACOUSTIC_NL, ACOUSTIC_orig report only
+phaserand_subject_fold: 0
+cache: data/cache/stageB_b2
+out_root: results/runs
+out: results/stageB_b2

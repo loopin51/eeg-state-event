@@ -1,0 +1,21 @@
+# D-092 preparation, second probe (after job 142): the first probe's head (one 512 -> 1024 x 121 linear per patch, 63M
+# parameters) inflated memory, and REVE-Base fine-tuning fitted the 10.5 GB budget only at batch 64 bf16. This probe
+# measures a low-rank head and per-layer activation checkpointing for REVE-Base fine-tuning. Random initialisation.
+input: {n_channels: 61, seconds: 3.0, reve_sfreq: 200, defossez_sfreq: 120}
+target: {n_features: 1024, sfreq: 120}
+n_subjects: 33
+encoders:
+  base: {embed_dim: 512, depth: 22, heads: 8, head_dim: 64, mlp_dim_ratio: 2.66, use_geglu: true, freqs: 4, patch_size: 200, patch_overlap: 20}
+include_defossez: false
+head_variants:
+  - {head: light, ckpt: false}
+  - {head: light, ckpt: true}
+  - {head: full, ckpt: true}
+rank: 32                    # light head: 512 -> 121 x 32 per patch, then 32 -> 1024 shared across frames
+batches: [64, 128, 256]
+precisions: [fp32, bf16]
+modes: [finetune]
+steps: 6
+lr: 1.0e-4
+gpu_budget_gb: 10.5
+out: results/reve_memory_probe/memory2.json

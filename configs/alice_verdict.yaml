@@ -1,0 +1,26 @@
+# D-092 verdict (component-selection rule, outside F1), with supplement 6 (condition 3 = per-arm PRE, phase randomisation, ΔPRE).
+cache_dir: data/cache/alice_eeg
+out_root: results/runs
+meters_config: configs/alice_meters.yaml
+baselines: results/baselines/alice_de_order.json
+order_upper: 0.5426           # ORDER segment-bootstrap one-sided 90% upper (supplement 5), interpretation reference line
+report_pool_exclude: [22, 26, 42, 44, 45]   # pool Q1 (supplement 4), report only
+phaserand_subject_fold: 0
+shift_null:
+  n_shift: 1000
+  min_shift_s: 15.0
+  seed: 20261012
+bootstrap:
+  n_boot: 1000
+  seed: 20261013
+verdict:
+  alpha: 0.05                 # REVE permutation p
+  sesoi: 0.02
+  meter_margin: 0.02          # PRE 90% upper < 0.52
+smoke_runs:                   # validation-segment smoke runs (filled by the smoke check)
+  defossez: alice_defossez_k0_f0_valid_smoke
+  reve: alice_reve_k0_f0_lr3e-05_valid_smoke
+null_check:
+  n_shift: 200
+  n_replicates: 200
+out: results/alice_verdict

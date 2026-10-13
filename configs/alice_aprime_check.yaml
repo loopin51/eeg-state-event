@@ -1,0 +1,15 @@
+# D-092 A′ inspection after the stop rule (report only; the stop verdict of job 171 does not change).
+# Written before either computation. Base settings (cache, model, A′ preprocessing, seed, batch, lr) come from base_config.
+base_config: configs/alice_train.yaml
+out_dir: results/alice_aprime_check
+rescore:                     # (a) post-hoc N-matched metrics from the saved best.pt (fp32), test queries as in job 171
+  run: 2026-10-13_alice_aprime_s2036
+  paper_n: 190               # test segments in the original paper
+  top_k: 18                  # round(10 x 335 / 190)
+  subsample_n: 190           # random candidate sets of 190 test queries (same sets for every subject)
+  subsample_reps: 1000
+  subsample_seed: 20261013
+probe:                       # (b) evaluation granularity, validation blocks only (no test window is built)
+  total_updates: 1200        # 2,400 would take about 13 min of training alone (0.33 s per update, job 171) > 10 min
+  eval_every: 150            # also before training (update 0)
+  # identical seed, draws and fixed validation batches as job 171, so update 1200 reproduces its epoch 0 (valid loss 7.8163)

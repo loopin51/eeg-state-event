@@ -1,0 +1,29 @@
+# ds007808 listeningcovert: are covert-imagery windows silent? (diagnostic, not a decoding result)
+raw_root: data/raw/ds007808
+runs:
+  - sub-01/ses-20240325/eeg/sub-01_ses-20240325_task-listeningcovert_acq-pangolin_run-01
+  - sub-01/ses-20240701/eeg/sub-01_ses-20240701_task-listeningcovert_acq-pangolin_run-01
+  - sub-01/ses-20240702/eeg/sub-01_ses-20240702_task-speechopen_acq-pangolin_run-01   # positive control: overt reading
+channels:
+  mic: [EEG131, EEG132]        # speaking microphone monitor (bipolar pair)
+  stim: [EEG129, EEG130]       # listening audio monitor (bipolar pair)
+  emg_upper: [EEG135, EEG136]  # upper-lip EMG (bipolar pair)
+  emg_lower: [EEG137, EEG138]  # lower-lip EMG (bipolar pair)
+  eog: [EEG133, EEG134]
+bands:
+  mic: [80, 550]
+  stim: [80, 550]
+  emg: [30, 450]
+  eog: [0.5, 15]
+notch_hz: 50
+covert_window_s: [0.0, 5.0]
+rest:               # inter-trial gaps: from the end of one event window to the next event onset
+  guard_s: 0.3      # trimmed from both ends of the gap
+  min_s: 0.8        # shorter gaps are skipped
+  max_s: 2.0        # longer gaps keep only the first max_s (avoids breaks where the participant may talk to staff)
+envelope:
+  pre_s: 2.0
+  post_s: 7.0
+  smooth_s: 0.1
+threshold_quantile: 0.99   # per-run rest quantile used to flag a covert window as "active"
+out_dir: results/survey/ds007808_vocal_check

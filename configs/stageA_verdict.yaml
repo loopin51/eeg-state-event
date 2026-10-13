@@ -1,0 +1,14 @@
+# Stage A verdicts (D-072 pass/border/fail, D-077 SA1/SA2, D-074 row) from finished run folders.
+runs_root: results/runs
+runs:                         # variant -> run folder per seed
+  clip_w2v: [2026-10-10_stageA_clip_w2v_s2036, 2026-10-10_stageA_clip_w2v_s2037, 2026-10-10_stageA_clip_w2v_s2038]
+  clip_mel: [2026-10-10_stageA_clip_mel_s2036, 2026-10-10_stageA_clip_mel_s2037, 2026-10-11_stageA_clip_mel_s2038]
+  base_mel: [2026-10-10_stageA_base_mel_s2036, 2026-10-10_stageA_base_mel_s2037, 2026-10-11_stageA_base_mel_s2038]
+  clip_w2v_nosubj: [2026-10-10_stageA_clip_w2v_nosubj_s2036, 2026-10-10_stageA_clip_w2v_nosubj_s2037, 2026-10-11_stageA_clip_w2v_nosubj_s2038]
+phaserand: 2026-10-10_stageA_clip_w2v_s2036_phaserand
+pool_exclude: [1, 15]         # D-061 pool: 17 subjects
+pass_top10: 0.089             # D-072: half of the paper's 17.7%
+sa1_excess: 0.084             # D-077: 8.9% minus the paper's chance 0.5%
+n_boot: 1000
+seed: 20261011
+out: results/stageA_verdict/verdict.json
