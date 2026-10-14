@@ -72,6 +72,7 @@ class LangData(RunData):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--subject-fold', type=int, required=True)
     ap.add_argument('--run-fold', type=int, required=True); ap.add_argument('--phaserand', action='store_true'); ap.add_argument('--smoke', action='store_true')
+    ap.add_argument('--shared-only', action='store_true')   # diagnosis: shared stage only (validation runs), no calibration, test runs never read
     a = ap.parse_args(); c2 = yaml.safe_load(open(a.config)); c = yaml.safe_load(open(os.path.join(ROOT, c2['b1_config']))); sp = c['split']; k, f = a.subject_fold, a.run_fold
     if not a.smoke: check_setting(c)
     st = c['settings'][c['decoder_setting']]; c['eeg']['reference'] = st['reference']; source = st['phaserand_source' if a.phaserand else 'source']
@@ -84,8 +85,9 @@ def main():
     if a.smoke:
         trainers = trainers[:3]; targets = targets[:2]; o.update(updates_per_epoch=10, batch_size=32); sh.update(eval_every=10, max_updates=20, min_updates=0)
         cal.update(updates_per_epoch=10, max_epochs=2, batch_size=32)
-    eval_runs = valid_runs if a.smoke else test_runs
+    eval_runs = valid_runs if a.smoke or a.shared_only else test_runs
     name = time.strftime('%Y-%m-%d') + f"_stageB_b2_{c['decoder_setting']}_k{k}_f{f}{'_phaserand' if a.phaserand else ''}{'_smoke' if a.smoke else ''}"
+    name += '_sharedonly' if a.shared_only else ''
     out = os.path.join(ROOT, c2['out_root'], name); os.makedirs(out, exist_ok=True)
     yaml.safe_dump(dict(c, b2=c2, run=dict(subject_fold=k, run_fold=f, phaserand=a.phaserand, smoke=a.smoke, source=source, trainers=trainers,
                                            targets=targets, train_runs=train_runs, valid_runs=valid_runs, eval_runs=eval_runs)), open(os.path.join(out, 'config.yaml'), 'w'))
@@ -124,6 +126,12 @@ def main():
     best, state = run_units(step, lambda: vloss(vb), sh['eval_every'], sh['max_updates'], sh['min_updates'], sh['patience_units'], hist, 'shared')
     net.load_state_dict(state); torch.save(state, os.path.join(out, 'shared.pt'))
     print(f'shared done: best valid {best:.4f} ({time.time() - t0:.0f}s)', flush=True)
+    if a.shared_only:
+        hs = [h for h in hist if h['stage'] == 'shared']; json.dump(hist, open(os.path.join(out, 'history.json'), 'w'), indent=1)
+        json.dump(dict(summary=dict(shared_only=True, shared_best_valid=best, shared_best_update=min(hs, key=lambda h: h['valid'])['update'],
+                                    shared_updates=hs[-1]['update'], car_exclude_bad=c2['car_exclude_bad'], device=torch.cuda.get_device_name(),
+                                    seconds=time.time() - t0)), open(os.path.join(out, 'metrics.json'), 'w'), indent=1)
+        return
 
     # 2. target subject layers (everything else frozen, eval mode)
     for p in net.parameters(): p.requires_grad_(False)
