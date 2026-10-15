@@ -1,0 +1,25 @@
+# F-III A1 development stage (D-105 sections 3, 9, 10). Read by scripts/a1_dev_stage.py. Every number is copied from D-105;
+# nothing here is chosen after a development value is seen.
+a1_config: configs/a1.yaml
+runs_root: results/runs
+device: RTX 5080
+# --stage ls (S-diagnosis of the existing P1 k0_f0 models)
+diag_seeds: [2036, 2037, 2038, 2039, 2040]
+diag_pattern: '*_a1_diag_*_c1_P1_A4_s{seed}_k0_f0'
+n_cells: 26                    # 13 training subjects x validation runs 5 and 13
+se_target: 0.004               # n = min(8, max(5, ceil(2 s_J^2 / se_target^2)))
+n_min: 5
+n_max: 8
+# --stage gate (development runs; the first n seeds of dev_seeds)
+dev_seeds: [2036, 2037, 2038, 2039, 2040, 2041, 2042, 2043]
+candidates: [jitter, lse, lse_jit]   # registered order (ties -> earlier)
+dev_pattern:                   # '*' after _dev: a folder tag (-TAG) is allowed; only runs with n_net_subjects == dev_n_net count
+  P1: '*_a1_P1_A4_s{seed}_k0_f0_dev*'
+  N: '*_a1_N-{cand}_A4_s{seed}_k0_f0_dev*'
+dev_n_net: 17                  # D-105 amendment 3: the development cell's full-job network (13 trainers + 4 targets)
+alice_pattern:
+  P1: '*_a1_alice_P1_s{seed}'
+  N: '*_a1_alice_N-{cand}_s{seed}'
+threshold: 0.01                # gate (i): chosen development Delta_J >= +0.01
+max_d0_drop: 0.03              # gate (iii): delta 0 development drop <= 0.03
+out: results/a1/dev_stage.json

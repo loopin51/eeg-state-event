@@ -29,3 +29,8 @@ negatives:                    # diagnosis: decomposition of the validation CLIP 
   classes_s: [3.0, 30.0]      # same run |dt| < 3 s (window overlap), 3-30 s, >= 30 s; different run; identical (run, t) = same target
 de:                           # J250 + LS DE + ridge baseline (scripts/a1_de.py, CPU), committed before any A1 decoder result
   out: results/baselines/a1_de_j250.json
+family_state:                 # F-III alpha transfer record (D-105, 2026-10-16): T1 stimulus gate 0-T failed (188e26d) before any A1 verdict
+  gate0T: fail
+  gate0T_before_A1: true
+  alpha_chain_A: 0.05         # A1 (and A2 when opened) judged at 0.05 from the start; both 0.04 and 0.05 categories are reported
+  mde_alpha: 0.04             # unchanged (D-105 section 6, 7)

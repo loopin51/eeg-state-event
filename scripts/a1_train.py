@@ -23,12 +23,13 @@ the C1 development metric (own layers, delta 0, exclusion 0) are stored. Blindin
 test_cells.json; scores.npz holds test matrices and is read only by the verdict scripts.
 
 usage: python scripts/a1_train.py configs/a1_p1.yaml|configs/a1_n.yaml --seed S --subject-fold K --run-fold F
-                                  [--candidate NAME] [--phaserand] [--smoke | --timing | --dev-only]
+                                  [--candidate NAME] [--phaserand] [--smoke | --timing | --dev-only] [--tag TAG]
+       --tag     : suffix of the run folder (-TAG), e.g. a repeated check that would otherwise get an existing folder name
        --timing  : full shared training, first target only, evaluation on the validation runs; no MRP value is written
 """
 import os
 os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
-import sys, json, time, copy, argparse, yaml, numpy as np, torch
+import sys, json, time, copy, hashlib, argparse, yaml, numpy as np, torch
 import torch.nn.functional as Fn
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, os.path.join(ROOT, 'src')); sys.path.insert(0, os.path.join(ROOT, 'scripts'))
 from ese.model.brain_clip import BrainModule, clip_loss, clip_scores
@@ -41,8 +42,9 @@ import a1_lib as L
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--seed', type=int, required=True)
     ap.add_argument('--subject-fold', type=int, required=True); ap.add_argument('--run-fold', type=int, required=True)
-    ap.add_argument('--phaserand', action='store_true'); ap.add_argument('--candidate')
-    g = ap.add_mutually_exclusive_group(); g.add_argument('--smoke', action='store_true'); g.add_argument('--timing', action='store_true'); g.add_argument('--dev-only', action='store_true')
+    ap.add_argument('--phaserand', action='store_true'); ap.add_argument('--candidate'); ap.add_argument('--tag', default='')   # --tag: folder suffix
+    g = ap.add_mutually_exclusive_group(); g.add_argument('--smoke', action='store_true'); g.add_argument('--timing', action='store_true')
+    ap.add_argument('--dev-only', action='store_true')                     # may be combined with --smoke (code check of the development path)
     a = ap.parse_args(); cc = yaml.safe_load(open(a.config)); c = yaml.safe_load(open(os.path.join(ROOT, cc['b1_config']))); A = yaml.safe_load(open(os.path.join(ROOT, cc['a1_config'])))
     sp = c['split']; K, F, seed = a.subject_fold, a.run_fold, a.seed
     if cc['arm'] == 'N':
@@ -51,7 +53,7 @@ def main():
         assert a.candidate is None, 'P1 has no candidate'; cand = None; obj = dict(name='clip', jitter_s=0.0, lse=False)
     rule = A['lag_search']['rule']
     if not (a.smoke or a.timing or a.dev_only): assert rule in A['lag_search']['rules'], 'the LS rule must be frozen before any test-run scoring'
-    if a.dev_only: assert (K, F) == (A['dev_cell']['subject_fold'], A['dev_cell']['run_fold']) and not a.phaserand, '--dev-only: development cell only'
+    if a.dev_only: assert (K, F) == (A['dev_cell']['subject_fold'], A['dev_cell']['run_fold']) and not a.phaserand and not a.timing, '--dev-only: development cell only'
     assert seed in cc['seeds'] or a.smoke or a.dev_only, f'seed {seed} not in {cc["seeds"]}'
     if not a.smoke: check_setting(c)
     st = c['settings'][c['decoder_setting']]; c['eeg']['reference'] = st['reference']; source = st['phaserand_source' if a.phaserand else 'source']
@@ -64,11 +66,12 @@ def main():
     if a.smoke:
         trainers = trainers[:3]; targets = targets[:2]; o.update(updates_per_epoch=10, batch_size=32); sh.update(eval_every=10, max_updates=20, min_updates=0)
         cal.update(updates_per_epoch=10, max_epochs=2, batch_size=32); ks = [1, 2]; nvb = 2
-    if a.timing: targets = targets[:1]
+    n_net = len(trainers) + len(targets)                                  # network size of the full job (subject-layer rows): --dev-only and
+    if a.timing: targets = targets[:1]                                     # --timing keep it, so the initial weights (seeded) equal the full job's
     if a.dev_only: targets = []
     eval_runs = valid_runs if a.smoke or a.timing or a.dev_only else test_runs
     tag = '_phaserand' if a.phaserand else ''; tag += '_smoke' if a.smoke else '_timing' if a.timing else '_dev' if a.dev_only else ''
-    name = time.strftime('%Y-%m-%d') + f"_a1_{cc['arm']}{'-' + cand if cand else ''}_{c['decoder_setting']}_s{seed}_k{K}_f{F}{tag}"
+    name = time.strftime('%Y-%m-%d') + f"_a1_{cc['arm']}{'-' + cand if cand else ''}_{c['decoder_setting']}_s{seed}_k{K}_f{F}{tag}" + (f'-{a.tag}' if a.tag else '')
     out = os.path.join(ROOT, cc['out_root'], name); os.makedirs(out, exist_ok=True)
     is_dev = K == A['dev_cell']['subject_fold'] and F == A['dev_cell']['run_fold'] and not a.phaserand
     yaml.safe_dump(dict(c, a1=A, arm_config=cc, run=dict(arm=cc['arm'], candidate=cand, objective=obj, seed=seed, subject_fold=K, run_fold=F, phaserand=a.phaserand,
@@ -85,9 +88,12 @@ def main():
     D.to_device(dev)
     print(f'A1 {cc["arm"]} {obj["name"]} seed {seed} subject fold {K} run fold {F}: trainers {trainers} targets {targets} source {source}; windows train '
           f'{len(D.items["train"])} valid {len(D.items["valid"])} eval queries {len(D.items["eval"])} ({time.time() - t0:.0f}s)', flush=True)
-    m = c['model']; net = BrainModule(out_dim=D.F.shape[0], n_subjects=len(subjects), merger_channels=m['merger_channels'], pos_dim=m['pos_dim'],
+    m = c['model']; net = BrainModule(out_dim=D.F.shape[0], n_subjects=n_net, merger_channels=m['merger_channels'], pos_dim=m['pos_dim'],
                                       merger_dropout=m['merger_dropout'], initial_linear=m['initial_linear'], hidden=m['hidden'],
                                       depth=m['depth'], subject_layers=True).to(dev)
+    if a.dev_only: assert D.subjects == trainers and len(targets) == 0, 'dev-only reads the training subjects only'   # no target EEG is loaded
+    rows0 = net.subject.weights[len(subjects):].detach().clone()           # subject-layer rows without data (dev-only / timing): never trained
+    init_sha = hashlib.sha256(b''.join(v.detach().cpu().numpy().tobytes() for _, v in sorted(net.state_dict().items()))).hexdigest()   # check against a CPU build
     amp = dict(device_type='cuda', dtype=torch.bfloat16, enabled=o['precision'] == 'bf16'); hist = []
     tr_items, va_items = D.items['train'], D.items['valid']; vr = np.random.default_rng(0)
     lag_list = L.lags(A)
@@ -147,6 +153,7 @@ def main():
 
     best, state = run_units(step, vloss, sh['eval_every'], sh['max_updates'], sh['min_updates'], sh['patience_units'], hist, 'shared')
     net.load_state_dict(state); torch.save(state, os.path.join(out, 'shared.pt')); t_shared = time.time() - t0
+    rows_unchanged = bool(torch.equal(net.subject.weights[len(subjects):].detach(), rows0)); assert rows_unchanged, 'rows without data changed in shared training'
     hs = [h for h in hist if h['stage'] == 'shared']
     shared_mask = mask_stat['masked'] / max(1, mask_stat['total']) if obj['lse'] else None; mask_stat.update(masked=0, total=0)
     print(f'shared done: best valid {best:.4f} @ {min(hs, key=lambda h: h["valid"])["update"]} ({t_shared:.0f}s)' + (f'; masked (candidate, lag) fraction {shared_mask:.4f}' if obj['lse'] else ''), flush=True)
@@ -279,7 +286,7 @@ def main():
     np.savez_compressed(os.path.join(out, 'scores.npz'), **arrays)
     summ = dict(arm=cc['arm'], candidate=cand, seed=seed, eval_runs=[r + 1 for r in eval_runs], eval_split='dev_only' if a.dev_only else 'valid' if a.smoke or a.timing else 'test',
                 n_queries=len(q), shared_best_valid=best, shared_best_update=min(hs, key=lambda h: h['valid'])['update'], shared_updates=hs[-1]['update'],
-                shared_seconds=t_shared, lse_masked_fraction_shared=shared_mask, lse_masked_fraction_rest=(mask_stat['masked'] / max(1, mask_stat['total']) if obj['lse'] else None),
+                n_net_subjects=n_net, init_sha256=init_sha, unused_rows=n_net - len(subjects), unused_rows_unchanged=rows_unchanged, shared_seconds=t_shared, lse_masked_fraction_shared=shared_mask, lse_masked_fraction_rest=(mask_stat['masked'] / max(1, mask_stat['total']) if obj['lse'] else None),
                 car_exclude_bad=cc['car_exclude_bad'], device=torch.cuda.get_device_name(), ls_rule=rule,
                 max_memory_allocated_gb=torch.cuda.max_memory_allocated() / 2 ** 30, seconds=time.time() - t0, calibration_seconds=timing)
     if a.timing:                              # time and memory only: no MRP value is written (an N timing run precedes the development stage)
