@@ -1,0 +1,32 @@
+# C1 arm P1 (D-097, registered before any C1 result): the B1 design (configs/stageB_b1.yaml, D-085) re-trained with the
+# D-094 improved procedure exactly as defined in D-091 amendment 4 (shared network evaluated every 150 updates, early stop
+# after 4 evaluations without improvement but never before 1,200 updates; CAR and the spatial-attention mask also leave out
+# the BIDS channels.tsv `bad` channels), w2v target, followed in the same job by the D-090 calibration curve with
+# k in {0, 1, 2, 4, 14}. Everything not listed here follows configs/stageB_b1.yaml.
+b1_config: configs/stageB_b1.yaml
+arm: P1
+init: none                   # P1: random init; P2 (separate config) loads the external pre-training checkpoint of the same seed
+seeds: [2036, 2037, 2038, 2039, 2040]   # D-097 amendment 5 (b): 5 seeds per arm by default
+car_exclude_bad: true        # BIDS bad + flat channels out of the CAR mean and masked (INVALID) in spatial attention (E2 of D-094)
+shared_training:             # D-091 amendment 4 definition (lr 3e-4 unchanged)
+  eval_every: 150
+  patience_units: 4
+  min_updates: 1200
+  max_updates: 240000
+calibration_curve:           # D-090 procedure (target layer only, B1 calibration optimiser and early stopping, 200-update unit)
+  ks: [1, 2, 4, 14]          # k0 = mean of the training subjects' layers (no target data) is always evaluated
+  draw_seed: 20261014        # D-090: permutation of the 14 training runs from default_rng([draw_seed, subject, run_fold]); k runs = first k
+  valid_seed: 20261015       # D-090: fixed 20 validation batches from default_rng([valid_seed, subject, run_fold]) (seed independent)
+  calib_seed: 20261016       # training batches from default_rng([calib_seed, subject, run_fold, k, seed])
+  gstar_epoch: {1: 0, 2: 0, 4: 0, 14: 1}   # descriptive G* (no validation): median best epoch of the other targets in D-090 (k1-4) / B1 (k14)
+  other_adapter: true        # descriptive: other targets' own k14 layers of the same job
+save_scores: [k0, k2, k14]   # within-run score matrices (float16) for the shift null, collapse check and phase-randomisation control
+save_pre: [k2]               # PRE meter (EEG window 10 s earlier) score matrices at the decision point
+dev_cell: {subject_fold: 0, run_fold: 0}   # development cell (D-097): training-subject validation-run MRP is computed only here
+phaserand_subject_fold: 0    # pipeline control: phase-randomised EEG, subject fold 0 x all run folds, first seed only
+out_root: results/runs
+out: results/c1
+de:                          # D-097 baseline, computed before any decoder result: DE + ridge fitted on the same k runs (same draws)
+  ks: [1, 2, 4, 14]          # k0 has no DE (the ridge needs target data); k14 is refitted here (not the B1 file)
+  car_exclude_bad: true      # same channel exclusion as the decoder's CAR; DE features stay 128 channels x 5 bands (B2 DE rule)
+  out: results/baselines/c1_de.json

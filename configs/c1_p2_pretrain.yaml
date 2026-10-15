@@ -1,0 +1,63 @@
+# C1 arm P2, step 1: external multi-dataset pretraining (scripts/c1_pretrain.py, D-096 decision 1 and 8, D-099).
+# Step 2 is scripts/c1_train.py with a P2 config (init = this run's pretrain.pt of the same seed), owned by D-097.
+# Window, network, optimiser and EEG handling = the P1 shared network (configs/stageB_b1.yaml via c1_p1.yaml), so only the
+# pretraining data differ. ds004408 and DTU are never read here (DTU is the C2 evaluation set, D-096 decision 7).
+# STATUS: candidates (hours, sqrt, mixed) and the selection rule are fixed (D-097 amendment 6, before any run). Their
+# weights are written from the cached training EEG hours (scripts/ext_summary.py) before the first run; the per-dataset
+# `weight` below is only the default for runs without --candidate (smoke). c1_pretrain.py refuses a candidate without weights.
+b1_config: configs/stageB_b1.yaml
+seeds: [2036, 2037, 2038, 2039, 2040]   # one pretraining per P2 seed; 5 seeds per arm by default (D-097 amendment 5)
+out_root: results/runs
+eeg:
+  reference: car                   # bad and flat channels left out of the mean and masked in spatial attention (as P1)
+  extra_filter: null               # e.g. {tag: lp20, l_freq: null, h_freq: 20.0} if D-101 adds a low-pass to C1 (derived memmap, cache unchanged)
+training:
+  batch_mode: per_dataset          # PLACEHOLDER (D-097 development rule)
+  eval_every: 150                  # D-094 / D-091 amendment 4 unit
+  patience_units: 4
+  min_updates: 1200
+  max_updates: 60000               # PLACEHOLDER
+  valid_batches_per_dataset: 20
+  timing_updates: 600
+datasets:                          # weight = PLACEHOLDER mixing weights (D-097 development rule)
+  - name: alice
+    kind: alice
+    cache_dir: data/cache/alice_eeg
+    source: eeg_hp05
+    features: w2v_seg              # wav2vec2-large-xlsr-53 layers 14-18 on each whole segment (D-092)
+    weight: 1.0
+    valid_fraction: 0.15           # 2 of 12 segments
+    valid_seed: 20261099
+  - name: sparrkulee
+    kind: ext
+    cache_dir: data/cache/sparrkulee
+    weight: 1.0
+    valid_fraction: 0.1
+    valid_seed: 20261099
+    stim_group_rules: [['^(audiobook_\d+).*$', '\1']]       # audiobook_1, _1_1, _1_2, _1_artefact, _1_1_shifted = story 1; podcasts single
+  - name: kul_aad
+    kind: ext
+    cache_dir: data/cache/kul_aad
+    weight: 1.0
+    valid_fraction: 0.1
+    valid_seed: 20261099
+    stim_group_rules: [['^rep_', ''], ['_(dry|hrtf)$', '']]     # experiment-3 repeats = first 2 min of the same part
+  - name: chineseeeg2
+    enabled: false                 # stimulus audio not in the public dataset (D-099); enabled only if the authors provide it before week 4
+    kind: ext
+    cache_dir: data/cache/chineseeeg2
+    weight: 1.0
+    valid_fraction: 0.1
+    valid_seed: 20261099
+candidates:                        # development candidates (coordination decision 2026-10-15, registered by eeg-b1 as D-097 amendment 6)
+  # weights from the cached training EEG hours only (c1_pretrain.py --weights -> results/d099_ext/weights.json, 2026-10-15):
+  # H = alice 5.40 h, sparrkulee 130.45 h, kul_aad 15.42 h (after the stimulus-group hold-out); no run had started
+  hours:  {training: {batch_mode: per_dataset}, weights: {alice: 0.0357, sparrkulee: 0.8623, kul_aad: 0.1019}}   # H_d / sum H
+  sqrt:   {training: {batch_mode: per_dataset}, weights: {alice: 0.1315, sparrkulee: 0.6463, kul_aad: 0.2222}}   # sqrt(H_d) / sum sqrt(H)
+  mixed:  {training: {batch_mode: mixed}, weights: {alice: 0.1315, sparrkulee: 0.6463, kul_aad: 0.2222}}         # per-example mixing, sqrt weights
+  # 'eq' (equal weights) dropped: Alice (6.6 h) would get 1/3 of the batches, the D-094 over-repetition path
+selection:                         # D-097 amendment 6
+  seeds: [2036, 2037]              # candidate choice = mean development-cell value over these two seeds
+  rest_seeds: [2038, 2039, 2040]   # pretrained afterwards for the chosen candidate only; its 5 checkpoints serve the P2 main run
+  futility_seeds: all              # 'development futility' (P2 - P1 < +0.01) uses the chosen candidate's 5-seed mean
+  drop_hours_if_gpu_hours_over: 4.0   # one pretraining measured on RTX 5080 > 4 GPU-h -> candidates sqrt and mixed only

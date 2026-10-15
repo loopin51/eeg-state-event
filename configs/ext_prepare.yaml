@@ -1,0 +1,50 @@
+# D-099: caches of the external listening EEG datasets for the C1 P2 pretraining (scripts/ext_prepare.py).
+# EEG chain and audio target follow the ds004408 A4 cache (configs/stageA_prepare_hp05.yaml, D-084) and the Alice cache
+# (configs/alice_prepare.yaml, D-092): 0.5 Hz zero-phase FIR high-pass near 500 Hz, 120 Hz, robust scaling per recording
+# and channel; CAR without bad / flat channels and the clamp at 20 at load time; wav2vec2-large-xlsr-53 layers 14-18.
+out_root: data/cache
+tmp_dir: /tmp                       # server NVMe; one decompressed BDF at a time
+eeg:
+  sample_rate: 120
+  highpass_hz: 0.5
+  filter_rate: {1024: 512, 1000: 500, 128: 128}   # native -> filtering rate (ds004408: filtered at its native 512 Hz)
+  robust_quantiles: [25, 75]
+audio:
+  sample_rate: 16000
+  wav2vec_model: facebook/wav2vec2-large-xlsr-53   # multilingual; used as is for Dutch and Mandarin (D-096)
+  wav2vec_layers: [14, 15, 16, 17, 18]
+  feature_dtype: float16
+  chunk_s: 180.0                    # about one ds004408 run; longer stimuli in overlapping windows (12 GB GPU attention memory)
+  hop_s: 160.0
+datasets:
+  sparrkulee:
+    raw_root: data/raw/sparrkulee
+    task: listeningActive
+    montage: biosemi64              # BDF labels are the 10-20 names of the Biosemi 64 cap
+    channel_alias: {P07: PO7, P03: PO3}   # sub-015 header typo (zero for letter O) at the PO7 / PO3 positions of the same order
+    exclude_subjects: [19, 20, 21, 22, 26]   # restricted on RDR (sub-022 run-09 alone is public; the 5 are left out whole: public 80)
+    exclude_recordings:             # dataset README: too few triggers to align with the stimulus
+      - sub-006/ses-shortstories01/eeg/sub-006_ses-shortstories01_task-listeningActive_run-06_eeg.bdf.gz
+      - sub-017/ses-shortstories01/eeg/sub-017_ses-shortstories01_task-listeningActive_run-03_eeg.bdf.gz
+      - sub-048/ses-varyingStories05/eeg/sub-048_ses-varyingStories05_task-listeningActive_run-04_eeg.bdf.gz
+    max_trigger_resid_ms: 20.0      # QC fixed before any decoder result: linear trigger fit residual above this -> excluded
+    exclude_stimuli:                # not a listening condition (fixed from the experiment files, before any decoder result)
+      - {pattern: '_artefact$', reason: 'insert-phone artefact control (APEX file audiobook_1_insertphone_artefact.xml: "Insertphone artefact conditie")'}
+  kul_aad:
+    raw_root: data/raw/kul_aad
+    stimuli_dir: stimuli            # stimuli.zip extracted; target = attended track, 'dry' version (dataset README)
+    montage: biosemi64              # FileHeader.Channels.Label are the Biosemi 64 10-20 names
+    repetitions: true               # experiment 3 repeats (first 2 min of the experiment-1 parts x 3) cached, marked repetition 1
+  dtu:                              # C2 evaluation only (D-097 amendments 2, 4); cache_dir data/cache/dtu (configs/c2_dtu_folds.yaml)
+    raw_root: data/raw/dtu_aad      # Zenodo 1199011: EEG.zip -> eeg/S1..S18.mat, AUDIO.zip -> audio/*.wav
+    eeg_dir: eeg
+    audio_dir: audio
+    trials_table: results/d099_ext/dtu/expinfo_all.tsv   # expinfo of the 18 subjects (MATLAB table, read before the EEG was opened)
+    n_trials: 70                    # 60 two-talker + 10 single-talker (dss.wav); single-talker trials are listed as excluded
+    exclude_audio: [dss.wav]        # the single-talker recording; stimuli.json holds the 128 two-talker segments
+    montage: biosemi64              # data.dim.chan.eeg: 64 Biosemi 10-20 names, then EXG1-8, Status (not used)
+  chineseeeg2:
+    raw_root: data/raw/chineseeeg2
+    montage: GSN-HydroCel-129
+  alice:
+    cache_dir: data/cache/alice_eeg   # D-092 cache, not rebuilt; only positions_common.npy is added

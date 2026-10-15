@@ -8,7 +8,7 @@ been staged + wrapped as a torch Dataset returning a unified 62-channel sample:
            'trial_id': int, 'session_id': int, 'dataset': str}
 
 Currently registered: SEED-IV (15 subjects, native 62ch) and DEAP (32 subjects,
-32ch padded to 62). Both raw sources are fully staged on the training server.
+32ch padded to 62). Both raw sources are fully staged on phy-server.
 
 --- Adding a new dataset later (e.g. GAMEEMO / EAV / VUI / SEED-V once
     downloaded) ---

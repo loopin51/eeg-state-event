@@ -1,0 +1,34 @@
+# D-101 (registered before any D-101 computation): is the B1 identification carried by stimulus-locked artefact or by fast
+# neural tracking? Diagnosis only (no alpha). Triggered by the D-100 check (one cell): a 50-ms EEG shift removed most of the
+# B1 excess while the target self-similarity kept it.
+b1_config: configs/stageB_b1.yaml
+band_input:                        # (a) B1 models (25 main + 5 phaserand), inference only, filtered 120-Hz A4 input
+  filter: {kind: butter, order: 4, zero_phase: true}     # sosfiltfilt on each run's continuous cache before windowing
+  bands: {full: null, lp4: [null, 4], lp8: [null, 8], lp12: [null, 12], lp20: [null, 20], bp8_20: [8, 20], hp20: [20, null]}
+  metric: b1_within_run_mrp        # B1 primary (all same-run candidates); 30-s-excluded MRP reported
+  shift_null: {n_shift: 1000, min_shift_s: 30.0, seed: 20261012}   # the B1 null (same draws as D-085)
+  bootstrap: {n_boot: 1000, seed: 20261121}
+coherence:                         # (b) raw 512-Hz EEG (BrainVision), CAR without BIDS-bad and flat channels
+  subjects: pool                   # the 17 pool subjects, all 20 runs
+  nperseg: 512                     # 1-s Hann segments, 50% overlap
+  audio: {wave_lowpass_hz: 250, envelope: hilbert_16k}     # waveform resampled to 512 Hz; broadband Hilbert envelope at 512 Hz
+  bands_hz: {b1_8: [1, 8], b8_20: [8, 20], b20_60: [20, 60], b70_250: [70, 250]}
+  n_shift: 100                     # circular audio shift by whole segments, >= 30 s, the same shift for every subject of a run
+  shift_seed: 20261122
+  xcorr:
+    wave_bands_hz: {b20_60: [20, 60], b70_250: [70, 250]}
+    wave_lags_ms: [-20, 30]
+    env_band_hz: [1, 60]
+    env_lags_ms: [-100, 400]
+  instantaneous_ms: {wave: 4.0, env: 8.0}
+onset_erp:                         # (c) acoustic onsets after >= 0.5 s of silence (TextGrid word starts)
+  min_gap_s: 0.5
+  window_ms: [-50, 300]
+  baseline_ms: [-50, 0]
+  bands_hz: {erp: [1, 40], high: [70, 250]}
+  threshold_sd: 3.0
+  min_dur_ms: 5.0
+rules:
+  retention: 0.5                   # rho = band excess / full excess
+out: results/d101_artifact
+cache: data/cache/d101_artifact

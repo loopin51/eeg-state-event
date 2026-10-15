@@ -1,0 +1,35 @@
+# Null simulation of the C1 verdict code (scripts/c1_null_sim.py). Code check only: no EEG, no decoder output, no test cell
+# is read; query counts are those of the DE baseline (results/baselines/c1_de.json, test runs, k2).
+verdict_config: configs/c1_verdict.yaml
+de_file: results/baselines/c1_de.json
+end_to_end:                    # fake run folders (random score matrices) through c1_mde.py and c1_verdict.py
+  query_scale: 0.2             # queries per run = round(scale x DE count) to keep the score matrices small
+  seed: 20261201
+  scenarios:
+    info0: {effect_P2: 0.0}    # information 0 in both arms (iid normal scores)
+    positive: {effect_P2: 0.6} # P2 diagonal shifted by 0.6 sd in k2 and k14 (positive control: the pipeline can reach 'adopt')
+monte_carlo:                   # cell-level replicates with the real query counts (17 x 20 cells), both arms information 0
+  seed: 20261202
+  n_rep: 2000
+  n_boot: 1000
+  seed_sd: [0.0, 0.005, 0.01, 0.02]   # sd of a seed effect common to all cells (D-095 common shift), same in both arms
+  cell_sd_extra: 0.01          # seed x cell interaction sd added to the rank noise
+  variants:                    # 'registered' = D-097 section 5; the others are diagnostics for the coordination session only
+    - {name: registered, n_seeds: 3, seed_inflate: false}
+    - {name: registered5, n_seeds: 5, seed_inflate: false}
+    - {name: inflate3, n_seeds: 3, seed_inflate: true}
+    - {name: inflate5, n_seeds: 5, seed_inflate: true}
+amendment5:                    # D-097 amendment 5 (b): fixed in d770c33 before this simulation was run; run once
+  seed: 20261203
+  n_rep: 2000
+  n_boot: 1000
+  seed_sd: [0.0, 0.005, 0.01, 0.02]
+  cell_sd_extra: 0.01
+  power: [{seed_sd: 0.01, effect: 0.03}]
+  max_reject: 0.05
+  min_power: 0.8
+  variants:                    # cost order: 3 seeds before 5 seeds, without the Welch test before with it
+    - {name: inflate3, n_seeds: 3, seed_inflate: true, welch: false}
+    - {name: inflate3_welch, n_seeds: 3, seed_inflate: true, welch: true}
+    - {name: inflate5, n_seeds: 5, seed_inflate: true, welch: false}
+    - {name: inflate5_welch, n_seeds: 5, seed_inflate: true, welch: true}

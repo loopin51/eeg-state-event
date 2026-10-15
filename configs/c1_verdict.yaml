@@ -1,0 +1,45 @@
+# C1 verdict and MDE (D-097 sections 4-10 and 13, amendments 1-5). Read by scripts/c1_mde.py and scripts/c1_verdict.py.
+# Every number here is copied from D-097; nothing is chosen after a result.
+arms:
+  P1: configs/c1_p1.yaml
+  P2: configs/c1_p2.yaml
+runs_root: results/runs        # run folders <date>_c1_<arm>_<setting>_s<seed>_k<K>_f<F>[_phaserand] with test_cells.json
+seeds: [2036, 2037, 2038, 2039, 2040]   # amendment 5 (b): 5 seeds by default (candidate ③ chosen by the amendment-5 simulation)
+seeds_extended: []             # section 10 MDE rule kept; with 5 seeds by default it adds nothing
+decision_k: 2
+ks: [0, 1, 2, 4, 14]
+gstar_ks: [1, 2, 4, 14]
+sesoi: 0.02
+alpha: {chain_A: 0.04, full: 0.05}   # registered levels; the level in force is set by family_state (c1_stats.alpha_chain_A): 0.05 after gate 0 failed
+bootstrap: {n_boot: 1000, seed: 20261097}   # section 5; the first 1,000 draws of this generator are the Delta_k2 interval
+interval_variant: inflate5    # amendment 5 (b): chosen by the amendment-5 simulation (sqrt(n/(n-1)) seed correction, 5 seeds, no Welch)
+protect: {k: 14, percentile: 5, margin: -0.01}   # section 8
+family_state:                  # section 1 with amendments 1 and 2; filled in from the L1 (D-098) and development records before the verdict
+  gate0: fail                  # D-098 gate 0, gpuq job 350 (results/d098_gates/gate0.json, 2026-10-15 07:55): ACOUSTIC, NL, KNN over 0.02
+  gate0_before_c1: true        # gate 0 judged before any C1 run -> C1 (and C2) judged at alpha_A = 0.05 from the start (amendment 1)
+  gateJ: pending               # present | hold | futile | undecidable | pending; not used once gate 0 failed (L1 closed)
+  l1_rejected: null            # true | false | null
+  dev_futile: false            # section 11: true -> the C1 test is not opened
+  c2_exists: true              # amendment 4: C2 kept
+prerequisites:                 # section 7
+  phaserand: {seed: 2036, subject_fold: 0, k: 2, percentile: 97.5}
+  pre: {k: 2, level_upper: 0.52, diff_upper: 0.02, percentile: 95}
+  de_baseline: {file: results/baselines/c1_de.json, commit: b57bde393afd672922a61ac292b319417fa0a931,
+                committed_at: '2026-10-15T00:02:44+09:00',
+                sha256: b47217f420b419666bc69d78e608cc971a60ee93c64dc25c5e1dbd15f21b5b83}
+  collapse: {seed: 2036, k: 2, p_min: 0.01, ks_min: 0.01, identity_passes: true}   # identity rule: amendment 5
+  device: RTX 5080
+shift_null: {n_shift: 1000, seed: 20261012, min_shift_s: 30.0}   # B1 amendment 1 onset-order shift
+sensitivity:                   # section 9 (report only)
+  main: {subjects: [2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 18], runs: [5, 13]}
+  extended: {subjects: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19], runs: [5, 13]}
+valid_minutes_runs: 2          # T = k + 2 runs (section 3)
+out: results/c1/verdict.json
+mde:                           # section 10
+  file: results/c1/mde.json
+  k: 2
+  n_boot: 1000
+  seed: 20261098
+  alpha: 0.04
+  power: 0.8
+  threshold: 0.03              # MDE > 0.03 -> 5 seeds in both arms

@@ -1,0 +1,30 @@
+# C2 arm P1_DTU (D-097 section 14, amendments 2 and 4; written before any C2 result): the C1 P1 procedure on the DTU
+# two-talker trials (attended stream), shared network on the DTU training subjects only. Read by scripts/c2_train.py.
+# Everything not listed here follows configs/stageB_b1.yaml (window, EEG handling, model, calibration optimiser).
+b1_config: configs/stageB_b1.yaml
+folds_config: configs/c2_dtu_folds.yaml   # subject folds, stimulus-unit trial folds, k_trials, query grid (amendment 4)
+arm: P1_DTU
+init: none
+seeds: [2036, 2037, 2038, 2039, 2040]   # C2 uses the C1 seed count (section 14; amendment 5: 5 seeds)
+shared_training:             # same as C1 (D-091 amendment 4 definition)
+  eval_every: 150
+  patience_units: 4
+  min_updates: 1200
+  max_updates: 240000
+calibration_curve:           # C1 procedure with trial counts (amendment 2 condition 4): k1 4, k2 7, k4 14, kmax all trials
+  ks: [1, 2, 4, max]         # k0 = mean of the training subjects' layers is always evaluated
+  draw_seed: 20261014        # nested draw default_rng([draw_seed, subject, trial_fold]) over the calibration trial numbers
+  valid_seed: 20261015       # fixed 20 validation batches from the target's 7 validation trials, default_rng([valid_seed, subject, fold])
+  calib_seed: 20261016       # training batches from default_rng([calib_seed, subject, fold, k, seed]); k = 999 for kmax
+save_scores: [k0, k2, kmax]  # within-trial score matrices: shift null, collapse check, phase-randomisation control, E1 (kmax)
+save_pre: [k2]               # PRE meter (EEG 10 s earlier) at the decision point
+save_unattended: [k2]        # UNATTENDED report: decoder output ranked among the unattended-stream windows (amendment 2 condition 3)
+phaserand_subject_fold: 0    # pipeline control: phase-randomised EEG (eeg_hp05_phaserand), subject fold 0 x all trial folds, first seed
+out_root: results/runs
+out: results/c2
+de:                          # C2 baseline before any C2 decoder result (scripts/c2_de.py): DE + ridge on the same k trials (same draws)
+  ks: [1, 2, 4, max]         # k0 has no DE (the ridge needs target data)
+  car_exclude_bad: true      # same channel exclusion as the decoder's CAR; DE features 64 channels x 5 bands
+  out: results/baselines/c2_de.json
+meters:                      # stimulus-only C2 prerequisite UNATTENDED (scripts/c2_meters.py; amendment 2 condition 3)
+  out: results/c2/meters.json

@@ -1,0 +1,18 @@
+# D-100 (a) (registered before any result): temporal-alignment tolerance tau50 of the B1 decoders (inference only, no training,
+# descriptive, RTX 4070 gpuq). Everything not listed follows configs/stageB_b1.yaml (D-085).
+b1_config: configs/stageB_b1.yaml
+models: {main: 25, phaserand: 5}       # B1 shared.pt + target_layers.pt of every subject fold x run fold, and the phaserand runs
+deltas_s: [0.0, 0.05, -0.05, 0.1, -0.1, 0.25, -0.25, 0.5, -0.5, 1.0, -1.0]   # shift of the query EEG window only
+stretch_r: [0.85, 0.9, 1.1, 1.15]      # [a - 0.5 r, a + 2.5 r) with a = onset + 0.15 s, linear interpolation to 360 samples
+offset_grid_s: {lo: -1.25, hi: 1.25, step: 0.05}   # computed decoder offsets (delay search needs delta + l, |l| <= 0.25)
+delay_search_s: 0.25                   # report only: max over l in [-0.25, 0.25] step 0.05
+exclusion_s: 30.0                      # candidates: the truth + same-run queries >= 30 s away (B1 report layer)
+shift_null: {n_shift: 1000, min_shift_s: 30.0, seed: 20261111}
+bootstrap: {n_boot: 1000, seed: 20261112}
+tau_grid_s: [0.0, 0.05, 0.1, 0.25, 0.5, 1.0]
+r3_tau_s: 0.25                         # R-e tau50 path: decoder tau50 (fixed alignment, point estimate) >= 0.25 s
+kim_rule_margin: 0.1                   # |R_decoder(0.25) - R_target(0.25)| <= 0.1 -> "tolerance equals the target autocorrelation range"
+de_min_excess: 0.005                   # tau50_DE only if the DE excess at delta 0 exceeds this
+pre_shift_s: 10.0
+out: results/d100_tau50
+cache: data/cache/d100_tau50           # per-cell observed and null values (server only)

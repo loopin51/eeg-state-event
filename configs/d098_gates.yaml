@@ -1,0 +1,55 @@
+# D-098 (registered before any gate result): the two gates of L1 (B2'), D-096 decision 9.
+#   gate J : forward acoustic-pair ceiling test (Prof. Jung). Pooled forward TRF; increment of L2 over A+ in the B2 within-run
+#            acoustic pairs. EEG only from the 26 development cells already opened by D-094 (coordination decision, plan A).
+#   gate 0 : stimulus-only gate (Prof. Park). New target (word / phoneme onset lexical variables, acoustically residualised) and
+#            new pairs (nearest in the nonlinear acoustic prediction of the target); acoustic and ORDER meters must not identify.
+# Everything not listed follows configs/ds004408_s0_trf.yaml (D-069) and configs/stageB_b2.yaml (D-091).
+b1_config: configs/stageB_b1.yaml
+b2_config: configs/stageB_b2.yaml
+lexicon:
+  cmudict: data/raw/cmudict/cmudict.dict     # cmusphinx/cmudict 74790861f652b15e4ac49015a90074ad62a27690,
+  cmudict_sha256: 81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22
+  zipf_floor: 1.0                            # word count = 10 ** max(wordfreq zipf, floor); variants share the word count equally
+textgrid_dir: data/raw/ds004408/stimuli      # Prosodylab-Aligner phones / words tiers (dataset README)
+features_cache: data/cache/d098
+fs: 20
+gate_J:
+  eeg: data/cache/ds004408                   # D-069 1-8 Hz 20-Hz cache (eeg20), z-scored per run and channel
+  subjects: [2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 18]   # training subjects of subject fold 0 (D-097 sec. 9 list)
+  eval_runs: [5, 13]                         # validation runs of run fold 0 (1-based); 26 cells opened by D-094
+  train_runs_from_b1_fold: 0                 # the 14 training runs of B1 run fold 0 (test 1-4 and valid 5, 13 excluded)
+  pairs_key: pairs_within_valid_f0           # data/cache/stageB_b2/pairs.npz (B2 primary within-run pairs, validation pool)
+  pool_key: pool_valid_f0
+  lags_ms: [-100, 700]
+  lambdas_log10: [-3, 4]                     # D-069 grid, picked by 4-group CV over the training runs (pooled model)
+  models: [A, Aplus, L1, L2]                 # A = D-069 A; Aplus = A + edges + phoneme onset; L1 = Aplus + word lexical; L2 = L1 + phoneme lexical
+  primary: [L2, Aplus]
+  n_boot: 1000                               # subject refit (weights) x pigeonhole over 30-s query blocks of the evaluation runs
+  block_s: 30.0
+  boot_seed: 20261101
+  n_shift: 100                               # circular shift (>= 10 s) of the added L2 - Aplus regressors in every run, refit
+  min_shift_s: 10.0
+  shift_seed: 20261102
+  value_shuffle_seed: 20261103               # one within-run permutation of word values among words and phoneme values among phonemes
+  premise_n_shift: 1000                      # J premise: Aplus within-run identification vs B1-type segment-order shift null
+  premise_seed: 20261104
+  a_pair_factor: 2.486                       # z_0.95 + z_0.80 (D-073 a)
+  floor: 0.005                               # 0.02 / 3.9 (B1 excess 0.377 / D-073 forward A excess 0.0972)
+  sensitivity_ratios: [2, 6]                 # floors 0.01 and 0.0033 (report)
+gate_0:
+  target_channels: [zipf, surprisal, entropy, ph_surprisal, cohort_entropy]
+  smooth_sigma_s: 0.05                       # Gaussian smoothing of the value impulses at 20 Hz
+  resid_lags_s: [-0.25, 0.25]                # time-series linear residualisation on the lagged acoustic design (20 columns x 11 lags)
+  meter_features: [mel, env, f0, vf, env_edge, band_edge, word_onsets, phone_onsets]   # 380-d window features
+  pair_model: {kind: rff, n_features: 2048, seed: 20261030}  # pairing space: RFF-ridge prediction of the window target
+  n_pairs: 19
+  min_same_run_s: 30.0
+  meters:
+    ACOUSTIC: {kind: linear}
+    ACOUSTIC_NL: {kind: rff, n_features: 2048, seeds: [20261020, 20261021, 20261022, 20261023, 20261024]}   # cell value = seed mean
+    ACOUSTIC_KNN: {kind: knn, k: 50}         # a model family not used for pairing
+    ORDER: {kind: position}
+  shift_null: {n_shift: 1000, min_shift_s: 30.0, seed: 20261105}
+  bootstrap: {n_boot: 1000, seed: 20261106}  # over runs (stimulus-only scores do not depend on the subject)
+  margin: 0.02                               # pass: every meter's 90% upper bound of (MRP - own null mean) < 0.02
+out: results/d098_gates
