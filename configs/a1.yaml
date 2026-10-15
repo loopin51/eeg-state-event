@@ -10,8 +10,11 @@ j250:                         # per query (subject, run, word onset): delta ~ U(
 lag_search:                   # LS: score(i, j) = A over l of the CLIP score of the EEG window moved by delta_i + l against target j
   lags_s: {lo: -0.25, hi: 0.25, step: 0.05}   # 11 lags
   rules: [max, lse0.25, lse0.5, lse1, lse2]   # lseC: tau_i = C x sd of query row i's scores over (candidate, lag); tau_i log sum exp(s / tau_i)
-  rule: null                  # frozen before any N training: the rule with the highest 5-seed mean development J250 MRP of the
-                              # existing P1 k0_f0 models (S-diagnosis, pseudo-target k2); ties -> earlier in `rules`
+  rule: lse0.5                # frozen before any N training (D-105 amendment 4, results/a1/dev_stage.json): the rule with the highest
+                              # 5-seed mean development J250 MRP of the existing P1 k0_f0 models (S-diagnosis, pseudo-target k2);
+                              # ties -> earlier in `rules`
+development:                  # D-105 section 9, amendment 4: n = min(8, max(5, ceil(2 s_J^2 / 0.004^2))), s_J = 0.00433 -> 5
+  n_seeds: 5                  # development seeds = the first n of configs/a1_dev_stage.yaml dev_seeds (2036..2040)
 queries:
   margin_s: 0.5               # EEG windows moved by up to |delta + l| <= 0.5 s stay inside the run (J250 + LS, delta = 0 protection)
   report_margin_s: 0.75       # delta grid with LS up to |delta| = 0.5 (diagnosis), J500 without search

@@ -17,7 +17,7 @@ g0t:
   rff: {n: 2048, seeds: [20261210, 20261211, 20261212, 20261213, 20261214]}
   w2v_low_layers: [1, 2, 3, 4]
   cv_groups: 5
-  null: {n: 1000, seed: 20261215}
+  null_perm: {n: 1000, seed: 20261215}   # key renamed from "null" (YAML reads it as None; job 414 failed before any meter)
   bootstrap: {n: 1000, seed: 20261216}
   pass_excess_upper90: 0.02
 
@@ -30,7 +30,7 @@ zero_prime:
   n_folds: 5
   rff: {n: 2048, seeds: [20261219, 20261220, 20261221, 20261222, 20261223]}
   knn: 50
-  null: {n: 1000, seed: 20261224}
+  null_perm: {n: 1000, seed: 20261224}   # key renamed from "null" (job 415 failed at load)
   bootstrap: {n: 1000, seed: 20261225}
   pass_excess_upper90: 0.02
 

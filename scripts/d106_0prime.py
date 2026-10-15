@@ -57,8 +57,8 @@ def main():
         ok = ((run[idx[i]] != run[idx[j]]) | (np.abs(on[idx[i]] - on[idx[j]]) >= g['min_sep_s'])) & (z[i] != z[j]); pairs.append(np.c_[i[ok], j[ok]])
     P = np.concatenate(pairs).astype(int); pf = fi[P[:, 0]]
     res = dict(forms=len(flist), tokens=int(len(idx)), valid_pairs=int(len(P)))
-    rng = np.random.default_rng(g['null']['seed']); perm_z = []
-    for _ in range(g['null']['n']):
+    rng = np.random.default_rng(g['null_perm']['seed']); perm_z = []
+    for _ in range(g['null_perm']['n']):
         zz = z.copy()
         for k in range(len(flist)):
             m = np.where(fi == k)[0]; zz[m] = z[rng.permutation(m)]

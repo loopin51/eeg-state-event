@@ -62,6 +62,7 @@ def main():
         res['ls'] = dict(per_seed=per, mean=mean, rule=best, s_J=sJ, n_seeds=n, files=files, note='rule chosen on P1 (conservative for N); the rule and n go into configs/a1.yaml by an amendment')
     else:
         assert 'ls' in res, 'run --stage ls first'; rule = A['lag_search']['rule']; assert rule == res['ls']['rule'], 'configs/a1.yaml lag_search.rule must equal the frozen rule'
+        assert A['development']['n_seeds'] == res['ls']['n_seeds'], 'configs/a1.yaml development.n_seeds must equal the frozen n'
         seeds = v['dev_seeds'][:res['ls']['n_seeds']]; key = f'j250_{rule}'; tab = {}; sig = None
 
         def arm(pat, kind):

@@ -60,9 +60,9 @@ def main():
         first = (DF.occurrence_index(list(lemma)) == 1).astype(float)
         WL = DF.w2v_low(W, cache)
         base = dict(WORD_AC=XW, WIN_AC=XA, W2V_LOW=WL, ORDER_POS=np.c_[POS, glob, occ, first])
-        rng_null = np.random.default_rng(g['null']['seed']); perms = {f: None for f in range(g['n_folds'])}
+        rng_null = np.random.default_rng(g['null_perm']['seed']); perms = {f: None for f in range(g['n_folds'])}
         ev_by_fold = {f: ev[lfold[ev] == f] for f in range(g['n_folds'])}
-        for f in range(g['n_folds']): perms[f] = np.stack([rng_null.permutation(len(ev_by_fold[f])) for _ in range(g['null']['n'])])
+        for f in range(g['n_folds']): perms[f] = np.stack([rng_null.permutation(len(ev_by_fold[f])) for _ in range(g['null_perm']['n'])])
         def lemma_mrp(P_lem):
             """P_lem [L, 300] predictions for the test lemmas (rows for ev); per-lemma observed MRP and null mean"""
             obs = {}; nul = {}

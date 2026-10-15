@@ -1,0 +1,14 @@
+# F-III S-diagnosis descriptive summary (D-105 section 10, D-104 decision 7 (a)(b)). Read by scripts/a1_diag_summary.py.
+# No alpha; nothing here feeds a verdict. The LS rule and n come from scripts/a1_dev_stage.py --stage ls.
+runs_root: results/runs
+seeds: [2036, 2037, 2038, 2039, 2040]
+diag_pattern:
+  P1: '*_a1_diag_*_c1_P1_A4_s{seed}_k0_f0'
+  P2h: '*_a1_diag_*_c1_P2_A4_s{seed}_k0_f0_dev-hours'
+layers: [own, pseudo]
+grid_layer: own
+# D-104 decision 7 (b): pretraining history.json of the C1 P2 pretraining runs (every candidate that exists)
+pretrain_pattern: '*_c1_P2_pretrain_s{seed}_{cand}'
+pretrain_candidates: [hours, sqrt, mixed]
+dev_stage: results/a1/dev_stage.json
+out: results/a1/diag_summary.json
