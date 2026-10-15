@@ -35,7 +35,7 @@ def build_tree(sc, effect, out, v, de, rng):
     seeds = v['seeds']; ks = [1, 2, 4, 14]
     for sd in seeds:                                                                # fake pre-training folders (P2 init)
         d = os.path.join(runs_root, f'2026-10-15_c1_P2_pretrain_s{sd}_eq'); os.makedirs(d, exist_ok=True); open(os.path.join(d, 'pretrain.pt'), 'w').close()
-        json.dump(dict(summary=dict(device='NVIDIA GeForce RTX 5080')), open(os.path.join(d, 'metrics.json'), 'w'))
+        json.dump(dict(seed=sd, candidate='eq', device='NVIDIA GeForce RTX 5080', seconds=1.0), open(os.path.join(d, 'metrics.json'), 'w'))   # c1_pretrain.py format
     jobs = [(arm, sd, K, F, False) for arm in ('P1', 'P2') for sd in seeds for K in range(5) for F in range(5)]
     jobs += [(arm, seeds[0], 0, F, True) for arm in ('P1', 'P2') for F in range(5)]
     for arm, sd, K, F, phr in jobs:
@@ -62,7 +62,7 @@ def build_tree(sc, effect, out, v, de, rng):
             o['other_adapter_k14'] = {str(x): {str(r): uniform_cell(rng, nq[r]) for r in test} for x in targets if x != s}
         if (K, F) == (0, 0) and not phr:
             res['_dev_trainers_valid'] = {str(s): {str(r): uniform_cell(rng, nq[r]) for r in valid} for s in trainers}
-        init = os.path.join(runs_root, f'2026-10-15_c1_P2_pretrain_s{sd}_eq', 'pretrain.pt') if arm == 'P2' else None
+        init = f'/shared/runs/loopin51/ese-c1-p2pre-s{sd}-eq/2026-10-15_c1_P2_pretrain_s{sd}_eq/pretrain.pt' if arm == 'P2' else None   # k3s path, fetched copy in runs_root
         summ = dict(arm=arm, seed=sd, eval_runs=test, eval_split='test', n_queries=0, shared_best_valid=5.0, shared_best_update=450, shared_updates=1200,
                     car_exclude_bad=True, device='NVIDIA GeForce RTX 5080', init=init, seconds=1.0)
         meta_only = {s: {kk: x for kk, x in r.items() if kk.endswith('_meta')} for s, r in res.items() if not s.startswith('_')}

@@ -1,0 +1,66 @@
+# D-104 T1 (text-candidate identification): fixed public TTS, rendering rules and the stimulus gate 0-T (EEG-free).
+# Committed before any 0-T number is computed. Criteria text: reports/fiii_stage/notes/t1_criteria_draft_kr.md (for D-105).
+b1_config: configs/stageB_b1.yaml          # run folds, query definition, window, feature normalisation (RunData)
+
+tts:
+  engine: kokoro                            # pip kokoro==0.9.4, misaki[en]==0.9.4 (G2P, espeak-ng fallback via espeakng-loader)
+  model_repo: hexgrad/Kokoro-82M            # Kokoro v1.0, StyleTTS 2 + ISTFTNet decoder, 82M parameters, Apache-2.0 weights
+  model_revision: f3ff3571791e39611d31c381e3a41a3af07b4987
+  model_file: kokoro-v1_0.pth
+  model_sha256: 496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4
+  lang_code: a                              # American English
+  voice: af_heart                           # primary: highest graded American English voice (VOICES.md grade A); not a clone of any reader
+  voice_report: am_michael                  # report only (timbre change, male; VOICES.md grade C+)
+  speed: 1.0                                # natural length: no stretching to the narrator's timing
+  split_pattern: null                       # the pipeline's own chunking (<= 510 phoneme tokens, at punctuation)
+  join_silence_s: 0.0                       # chunks concatenated as produced, no added pauses
+  device: cpu                               # synthesis on CPU inside the gpuq job (deterministic); w2v on the RTX 4070
+  env: env_tts                              # separate venv on the server (uv, Python 3.11); env/ is not modified
+  sample_rate_out: 24000                    # resampled to 16 kHz (polyphase) for wav2vec 2.0
+
+text:
+  source: data/cache/ds004408/word_features.npz   # TextGrid word tier + restored punctuation (field punct, D-069); no audio timing
+  join: "word + punct, separated by single spaces, one string per run"
+  normalisation: >                          # fixed after the one-run render smoke (job 396, run 1 only, no 0-T number), before 0-T
+    split contractions of the TextGrid (a word s, ll, d, ve, re, t or m after another word: "don t", "boy s") are written
+    with an apostrophe ("don't", "boy's") and share the TTS token; the restored punct code '-' (a dash pause) is written as
+    an em dash.
+  word_onset_mapping: >
+    TTS tokens (start_ts) are aligned to the run's word list in order by normalised strings (lower case, letters and digits
+    only). A TTS token that covers several words (e.g. a hyphen compound) gives its span to those words in proportion to
+    their letter counts. Words without a TTS timestamp get an onset linearly interpolated between their neighbours; the count
+    is reported.
+
+features:
+  wav2vec_model: facebook/wav2vec2-large-xlsr-53
+  wav2vec_layers: [14, 15, 16, 17, 18]      # same as w2v_run (stageA_prepare): mean of hidden states, nearest-interpolated to 120 Hz
+  frames: "floor(TTS run duration x 120)"
+  pass: whole TTS run in one pass (as w2v_run)
+  normalisation: run-fold training-run statistics of the real w2v_run (RunData.fmean / fstd), applied to real and TTS windows alike
+
+windows:
+  real: "[t - 0.5, t + 2.5) of w2v_run, t = query word onset (B1 eval queries, all 20 runs as test runs of their fold)"
+  tts: "[tau - 0.5, tau + 2.5) of the TTS run features, tau = TTS onset of the same word (anchor = the query word only)"
+  valid: queries whose TTS window lies inside the TTS run (others dropped; count reported)
+
+gate_0T:
+  score: clip_scores (estimate = real window [1024 x 360], candidates = TTS windows, L2-normalised over (F, T))
+  candidates: all valid queries of the same run (exclusion 0 s, B1 primary)
+  mrp: "(below + 0.5 ties) / (n - 1) per query, query-weighted over runs"
+  pass_raw_mrp_lower90: 0.90                # 5th percentile of the run bootstrap >= 0.90
+  bootstrap: {n: 1000, seed: 20261201, unit: test run (20)}
+  shift_null: {n_shift: 1000, min_shift_s: 30.0, seed: 20261202}   # B1 segment-order circular shift; excess reported
+  meters:                                   # stimulus-side scorers of the TTS candidates, no EEG; pass: excess 90% upper < 0.02
+    ORDER: relative position in the run, polynomial + Fourier terms as stageB_b1_meters
+    LOWONLY: [n_letters_sum, n_words, squares]   # letters and word count of the words with real onsets in [t - 0.5, t + 2.5)
+    fit: ridge to the time-pooled TTS window feature on the fold's training runs (grouped CV 7 x 2 runs, ALPHAS of stageB_b1_meters)
+    rank: cosine of time-pooled vectors against the same-run TTS candidates
+    pass_excess_upper90: 0.02
+  report_only:
+    - onset_difference: "(tau_w - tau_q) - (t_w - t_q) for words with real onsets in the window: 50/90/99th percentiles"
+    - duration_ratio: TTS run duration / audio run duration
+    - delay_search: max over lags l in [-0.25, 0.25] s step 0.05 of the TTS window score
+    - stretched: TTS features time-warped piecewise-linearly so that TTS word onsets land on the TextGrid onsets
+    - voice_report: am_michael rendering, same gate statistics
+out: results/t1_tts
+cache: data/cache/t1_tts

@@ -1,0 +1,23 @@
+# F-III A1 arm P1 (D-105): the C1 P1 procedure (configs/c1_p1.yaml, D-097, identical below) re-run with scripts/a1_train.py,
+# which adds every target layer, J250 + LS scoring and the A1 development metric (configs/a1.yaml). Training path unchanged.
+a1_config: configs/a1.yaml
+b1_config: configs/stageB_b1.yaml
+arm: P1
+init: none                   # P1: random init; P2 (separate config) loads the external pre-training checkpoint of the same seed
+seeds: [2036, 2037, 2038, 2039, 2040]   # 5 seeds (D-097 amendment 5 ③); development-stage n (5-8) is fixed by a D-105 amendment after the S-diagnosis
+car_exclude_bad: true        # BIDS bad + flat channels out of the CAR mean and masked (INVALID) in spatial attention (E2 of D-094)
+shared_training:             # D-091 amendment 4 definition (lr 3e-4 unchanged)
+  eval_every: 150
+  patience_units: 4
+  min_updates: 1200
+  max_updates: 240000
+calibration_curve:           # D-090 procedure (target layer only, B1 calibration optimiser and early stopping, 200-update unit)
+  ks: [1, 2, 4, 14]          # k0 = mean of the training subjects' layers (no target data) is always evaluated
+  draw_seed: 20261014        # D-090: permutation of the 14 training runs from default_rng([draw_seed, subject, run_fold]); k runs = first k
+  valid_seed: 20261015       # D-090: fixed 20 validation batches from default_rng([valid_seed, subject, run_fold]) (seed independent)
+  calib_seed: 20261016       # training batches from default_rng([calib_seed, subject, run_fold, k, seed])
+  gstar_epoch: {1: 0, 2: 0, 4: 0, 14: 1}   # descriptive G* (no validation): median best epoch of the other targets in D-090 (k1-4) / B1 (k14)
+  other_adapter: true        # descriptive: other targets' own k14 layers of the same job
+phaserand_subject_fold: 0    # pipeline control: phase-randomised EEG, subject fold 0 x all run folds, first seed only
+out_root: results/runs
+out: results/a1

@@ -1,0 +1,29 @@
+# F-III A1 arm N (D-105): the P1 procedure (configs/a1_p1.yaml, identical below) with the training objective
+# replaced (shared training, its validation loss, calibration and its early-stopping loss). One of three candidates, frozen in
+# the development stage (D-104 decision 6) by an amendment before any N main job.
+a1_config: configs/a1.yaml
+b1_config: configs/stageB_b1.yaml
+arm: N
+init: none                   # no pre-training (D-104 decision 1)
+seeds: [2036, 2037, 2038, 2039, 2040]   # 5 seeds (D-097 amendment 5 ③); development-stage n (5-8) is fixed by a D-105 amendment after the S-diagnosis
+car_exclude_bad: true        # BIDS bad + flat channels out of the CAR mean and masked (INVALID) in spatial attention (E2 of D-094)
+shared_training:             # D-091 amendment 4 definition (lr 3e-4 unchanged)
+  eval_every: 150
+  patience_units: 4
+  min_updates: 1200
+  max_updates: 240000
+calibration_curve:           # D-090 procedure (target layer only, B1 calibration optimiser and early stopping, 200-update unit)
+  ks: [1, 2, 4, 14]          # k0 = mean of the training subjects' layers (no target data) is always evaluated
+  draw_seed: 20261014        # D-090: permutation of the 14 training runs from default_rng([draw_seed, subject, run_fold]); k runs = first k
+  valid_seed: 20261015       # D-090: fixed 20 validation batches from default_rng([valid_seed, subject, run_fold]) (seed independent)
+  calib_seed: 20261016       # training batches from default_rng([calib_seed, subject, run_fold, k, seed])
+  gstar_epoch: {1: 0, 2: 0, 4: 0, 14: 1}   # descriptive G* (no validation): median best epoch of the other targets in D-090 (k1-4) / B1 (k14)
+  other_adapter: true        # descriptive: other targets' own k14 layers of the same job
+phaserand_subject_fold: 0    # pipeline control: phase-randomised EEG, subject fold 0 x all run folds, first seed only
+out_root: results/runs
+out: results/a1
+candidates:                  # D-104 decision 1 (fixed): jitter U(-0.25, 0.25) s; LSE lag-marginalised CLIP (+-0.25 s, 0.05 s grid); LSE + U(-0.1, 0.1) s
+  jitter: {jitter_s: 0.25, lse: false}
+  lse: {jitter_s: 0.0, lse: true}
+  lse_jit: {jitter_s: 0.1, lse: true}
+candidate: null              # frozen by the development-stage amendment

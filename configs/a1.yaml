@@ -1,0 +1,31 @@
+# F-III A1 (D-105, registered before any A1 result): shared definitions of the J250 condition, the lag search (LS), the
+# development metric and the N candidates. Read by scripts/a1_lib.py and every A1 script (training, DE, diagnosis, verdict).
+# Everything not listed follows configs/c1_p1.yaml (D-097) and configs/stageB_b1.yaml (D-085).
+b1_config: configs/stageB_b1.yaml
+c1_config: configs/c1_p1.yaml
+j250:                         # per query (subject, run, word onset): delta ~ U(-0.25, +0.25) s drawn once, the same for every arm and seed
+  seed: 20261105              # default_rng([seed, subject, run]).uniform(-width, width, n) over the run's sorted unique word onsets
+  width_s: 0.25               # R-e (D-100), registered before tau50 was measured
+  report_widths_s: [0.5]      # J500 (report only, its own query subset)
+lag_search:                   # LS: score(i, j) = A over l of the CLIP score of the EEG window moved by delta_i + l against target j
+  lags_s: {lo: -0.25, hi: 0.25, step: 0.05}   # 11 lags
+  rules: [max, lse0.25, lse0.5, lse1, lse2]   # lseC: tau_i = C x sd of query row i's scores over (candidate, lag); tau_i log sum exp(s / tau_i)
+  rule: null                  # frozen before any N training: the rule with the highest 5-seed mean development J250 MRP of the
+                              # existing P1 k0_f0 models (S-diagnosis, pseudo-target k2); ties -> earlier in `rules`
+queries:
+  margin_s: 0.5               # EEG windows moved by up to |delta + l| <= 0.5 s stay inside the run (J250 + LS, delta = 0 protection)
+  report_margin_s: 0.75       # delta grid with LS up to |delta| = 0.5 (diagnosis), J500 without search
+  exclusion_s: 30.0           # candidates: the truth and the same-run queries >= 30 s away (D-100)
+delta_grid_s: [0.0, 0.05, -0.05, 0.1, -0.1, 0.25, -0.25, 0.5, -0.5]   # diagnosis (report only)
+pseudo_target:                # development metric (D-104 decision 6): pseudo-target k2 on the development cell
+  k: 2                        # the subject's layer restarts from the mean of the other training subjects' layers and is refitted on
+  draw_seed: 20261014         # 2 of its own training runs (draw_runs(draw_seed, s, run_fold, train_runs, 2)), 200 updates, no
+  calib_seed: 20261016        # validation (the validation runs 5 and 13 are the evaluation runs); batches default_rng([calib_seed, s, F, k, seed])
+  updates: 200                # = G* k2 epoch 0 (D-097 section 13); the P1 k0_f0 jobs' real k2 best epoch was 0 for every target
+dev_cell: {subject_fold: 0, run_fold: 0}
+equivariance:                 # N(b)/(c) one-pass lag scores (extended window, cropped outputs) vs per-window forward passes
+  min_corr: 0.99              # registered acceptance (pooled over queries x candidates x lags); below -> wider margin or per-window passes
+negatives:                    # diagnosis: decomposition of the validation CLIP loss by negative-pair composition (report only)
+  classes_s: [3.0, 30.0]      # same run |dt| < 3 s (window overlap), 3-30 s, >= 30 s; different run; identical (run, t) = same target
+de:                           # J250 + LS DE + ridge baseline (scripts/a1_de.py, CPU), committed before any A1 decoder result
+  out: results/baselines/a1_de_j250.json

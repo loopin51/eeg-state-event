@@ -1,0 +1,46 @@
+# D-106 (registered aedb1eb, before any computation): stimulus gates G0-T and 0', UGR-MINDVOICE R-a meters and u_overt.
+b1_config: configs/stageB_b1.yaml
+stageA_prepare_config: configs/stageA_prepare.yaml
+d098_config: configs/d098_gates.yaml
+cache: data/cache/d106
+out: results/d106
+
+g0t:
+  pos_keep: [NOUN, PROPN, VERB, ADJ, ADV]      # PROPN counted as NOUN
+  glove_model: sentence-transformers/average_word_embeddings_glove.6B.300d
+  fold_salt: "|20261203"
+  n_folds: 5
+  candidates: {n: 19, zipf_tol: 0.5, letters_tol: 2}
+  min_lemmas_total: 100
+  min_lemmas_per_fold: 10
+  word_ac: {span_s: 0.8, bins: 8}
+  rff: {n: 2048, seeds: [20261210, 20261211, 20261212, 20261213, 20261214]}
+  w2v_low_layers: [1, 2, 3, 4]
+  cv_groups: 5
+  null: {n: 1000, seed: 20261215}
+  bootstrap: {n: 1000, seed: 20261216}
+  pass_excess_upper90: 0.02
+
+zero_prime:
+  min_tokens_per_form: 4
+  min_sep_s: 30.0
+  min_pairs: 1000
+  mde: {seed: 20261217, n: 1000, factor: 2.486, max: 0.02}
+  fold_salt: "|20261218"
+  n_folds: 5
+  rff: {n: 2048, seeds: [20261219, 20261220, 20261221, 20261222, 20261223]}
+  knn: 50
+  null: {n: 1000, seed: 20261224}
+  bootstrap: {n: 1000, seed: 20261225}
+  pass_excess_upper90: 0.02
+
+ugr:
+  meta_root: /mnt/data/eeg_datasets/ugr_mindvoice/meta/files/Data
+  audio_root: /mnt/data/eeg_datasets/ugr_mindvoice/audio
+  primary_subjects: [4, 5, 6, 9, 12, 13]         # two-session subjects without sub-15 (D-100 exclusion rule 1)
+  sensitivity_subjects: [4, 5, 6, 9, 12, 13, 15]
+  rms: {win_s: 0.025, hop_s: 0.010}
+  baseline_s: 0.5
+  mad_k: 5.0
+  min_run_s: 0.05
+  out_alpha_cp: 0.05

@@ -1,0 +1,13 @@
+# F-III A1 null simulation (scripts/a1_null_sim.py, code check). Settings follow configs/c1_null_sim.yaml amendment5 for
+# the registered interval (inflate5) with the A1 query counts; both chain-A levels.
+a1_config: configs/a1.yaml
+seed: 20261204
+n_rep: 2000
+n_boot: 1000
+n_seeds: 5
+seed_sd: [0.0, 0.005, 0.01, 0.02]   # sd of a seed effect common to all cells, same in both arms
+cell_sd_extra: 0.01                  # seed x cell interaction sd added to the rank noise
+power: [{seed_sd: 0.01, effect: 0.03}]
+alphas: [0.04, 0.05]
+sesoi: 0.02
+out: results/a1/null_sim.json

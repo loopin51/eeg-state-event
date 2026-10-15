@@ -1,0 +1,16 @@
+# Null simulation of the C2 verdict code (scripts/c2_null_sim.py). Code check only: no EEG, no decoder output, no test cell is
+# read; the cells and query counts are those of the real DTU split (data/cache/dtu/eeg_meta.json trial lengths, query grid).
+verdict_config: configs/c2_verdict.yaml
+end_to_end:                    # fake run folders (random score matrices) through scripts/c2_verdict.py
+  seed: 20261211
+  scenarios:                   # diagonal shift (sd units of the iid normal scores) per arm and k
+    info0: {P1: {}, P2: {}}                                     # information 0 in both arms: E1 must fail, never 'adopt'
+    equal: {P1: {all: 0.5}, P2: {all: 0.5}}                     # same information in both arms: E1 passes, Delta ~ 0, never 'adopt'
+    positive: {P1: {all: 0.5}, P2: {all: 0.5, k2: 1.0, kmax: 1.0}}   # positive control: the pipeline can reach 'adopt'
+monte_carlo:                   # cell-level replicates with the real C2 query counts (18 x 62 cells), both arms information 0
+  seed: 20261212
+  n_rep: 1000
+  n_boot: 1000
+  n_seeds: 5
+  seed_sd: [0.0, 0.005, 0.01, 0.02]   # sd of a seed effect common to all cells, same in both arms
+  cell_sd_extra: 0.01          # seed x cell interaction sd added to the rank noise (C1 simulation value)

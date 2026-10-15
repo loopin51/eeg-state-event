@@ -21,6 +21,17 @@ from stageB_b1_verdict import shift_maps, wolpaw
 def path(p): return p if os.path.isabs(p) else os.path.join(ROOT, p)
 
 
+def pretrain_device(ck, runs_root):
+    """device of the pre-training job behind an init checkpoint. k3s jobs pass the shared-volume path (/shared/runs/<user>/<job>/<folder>/
+    pretrain.pt), which does not exist on the server; the fetched copy is <runs_root>/<folder>/. c1_pretrain.py writes the summary at the top
+    level of metrics.json (no 'summary' key)."""
+    folder = os.path.basename(os.path.dirname(ck))
+    for d in (os.path.dirname(path(ck)), os.path.join(path(runs_root), folder)):
+        mp = os.path.join(d, 'metrics.json')
+        if os.path.exists(mp): M = json.load(open(mp)); return folder, M.get('summary', M).get('device')
+    return folder, 'missing'
+
+
 def arm_setup(arm_cfg):
     cc = yaml.safe_load(open(path(arm_cfg))); c = yaml.safe_load(open(path(cc['b1_config']))); sp = c['split']
     pool = sorted(s for fs in sp['subject_folds'] for s in fs); extra = sorted(s for v in sp.get('extra_targets', {}).values() for s in v)
@@ -169,8 +180,7 @@ def main():
         for d in prun[pr['phaserand']['seed']].values(): devs[os.path.basename(d)] = json.load(open(os.path.join(d, 'metrics.json')))['summary']['device']
     inits = sorted({json.load(open(os.path.join(d, 'metrics.json')))['summary'].get('init') for d in all_runs} - {None})
     for ck in inits:
-        mp = os.path.join(os.path.dirname(path(ck)), 'metrics.json')
-        devs[os.path.basename(os.path.dirname(path(ck)))] = json.load(open(mp))['summary'].get('device') if os.path.exists(mp) else 'missing'
+        folder, dv = pretrain_device(ck, v['runs_root']); devs[folder] = dv
     bad_dev = {k: x for k, x in devs.items() if pr['device'] not in str(x)}
     prereq['5_device'] = dict(n_jobs=len(devs), not_matching=bad_dev, ok=not bad_dev)
     prereq_ok = all(x['ok'] for x in prereq.values())

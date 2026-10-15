@@ -1,0 +1,26 @@
+# C2 verdict and E1 (D-097 section 14, amendments 2 and 4, F-II alpha record). Read by scripts/c2_verdict.py.
+# Every number here is copied from D-097 or from configs/c1_verdict.yaml (C2 uses the C1 rules); nothing is chosen after a result.
+arms:
+  P1: configs/c2_p1.yaml       # P1_DTU
+  P2: configs/c2_p2.yaml       # P2_DTU
+c1_verdict_config: configs/c1_verdict.yaml   # family_state (alpha_A), sesoi, interval_variant: the C1 values (section 14)
+c1_verdict_file: results/c1/verdict.json     # C2 is confirmatory only when C1 is 'adopt' (section 14); otherwise descriptive
+runs_root: results/runs        # run folders <date>_c2_<arm>_<setting>_s<seed>_k<K>_f<F>[_phaserand] with test_cells.json
+seeds: [2036, 2037, 2038, 2039, 2040]   # the C1 seed count (section 14; amendment 5: 5 seeds, inflate5)
+decision_k: k2                 # 7 trials (amendment 2 condition 4)
+ks: [k0, k1, k2, k4, kmax]
+units: pairs                   # cell = (target subject, test pair), amendment 4; 18 subjects x 62 pairs, cells not heard weigh 0
+bootstrap: {n_boot: 1000, seed: 20261097}   # section 5 generator; the first 1,000 draws are the Delta_k2 interval
+shift_null: {n_shift: 1000, seed: 20261012, min_shift_s: 10.0}   # amendment 4 item 2: segment-order shift, k_min 10 s, one shift per pair
+protect: {k: kmax, percentile: 5, margin: -0.01}   # section 8 at the largest k (section 14)
+e1: {k: kmax, p_max: 0.05, null_percentile: 97.5, boot_percentile: 2.5}   # section 14 / amendment 2: P1_DTU at kmax, no alpha
+prerequisites:                 # section 7 items 1-5 on DTU (section 14) and amendment 2 condition 3
+  phaserand: {seed: 2036, subject_fold: 0, k: k2, percentile: 97.5}
+  pre: {k: k2, level_upper: 0.52, diff_upper: 0.02, percentile: 95}
+  de_baseline: {file: results/baselines/c2_de.json, commit: d4bc70fc4b49d74009f693659d1e8eef706b3053,
+                committed_at: '2026-10-15T18:54:21+09:00',
+                sha256: f19ad3c76732818de8740d8be6c587cd6cab74402716f50e37a86b5309cef8b9}   # gpuq job 380
+  collapse: {seed: 2036, k: k2, p_min: 0.01, ks_min: 0.01, identity_passes: true}   # identity rule: amendment 5
+  device: RTX 5080
+  unattended: {file: results/c2/meters.json, upper: 0.52, percentile: 95}   # amendment 2 condition 3: 90% upper < 0.52
+out: results/c2/verdict.json

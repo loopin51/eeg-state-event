@@ -1,0 +1,17 @@
+# C1 development stage (D-097 section 11 as changed by amendment 6). Read by scripts/c1_dev_stage.py.
+# Every number here is copied from D-097 amendment 6; nothing is chosen after a development value is seen.
+arms:
+  P1: configs/c1_p1.yaml       # development metric from the P1 main job s{seed}_k0_f0 (metrics.json _dev_trainers_valid)
+  P2: configs/c1_p2.yaml       # candidates, ckpt_glob; development runs --dev-only --candidate NAME (folder suffix _dev-NAME)
+runs_root: results/runs
+select_seeds: [2036, 2037]     # D_sel = mean over these seeds (candidate) - mean over these seeds (P1)
+all_seeds: [2036, 2037, 2038, 2039, 2040]   # D_dev = mean over the 5 seeds (chosen candidate) - mean over the 5 seeds (P1)
+futility_threshold: 0.01       # D_dev < +0.01 -> 'development-stage futility', the C1 test is not opened (section 1, section 11)
+hours_rule:                    # 4 GPU-hour rule: sqrt seed-2036 pre-training seconds / 3600 > 4.0 on RTX 5080 -> hours dropped
+  candidate: sqrt
+  seed: 2036
+  max_gpu_hours: 4.0
+  drop: hours
+  update_cap: 60000            # reported: whether the pre-training reached the update cap
+device: RTX 5080
+out: results/c1/dev_stage.json
