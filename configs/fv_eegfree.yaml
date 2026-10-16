@@ -1,0 +1,47 @@
+# F-V EEG-free gates G0 and 0-V (D-111; definitions: reports/fv_stage/notes/fv_gate_g0_0v_draft_kr.md, 30e1cb4, moved to D-112).
+# scripts/fv_embed.py (k3s RTX 5080) writes the embeddings; scripts/fv_gate.py (server gpuq CPU job) computes the gates.
+images: data/raw/things_eeg2/image_set          # training_images/<NNNNN_id>/*.jpg (1,654 x 10), test_images/<NNNNN_id>/*.jpg (200 x 1)
+n_train: [1654, 16540]                         # concepts, images
+n_test: [200, 200]
+names: configs/fv_names.tsv                    # name table (coordination session, D-112); text embeddings and G0 wait for it
+clip:
+  arch: ViT-H-14
+  pretrained_tag: laion2b_s32b_b79k            # weights: laion/CLIP-ViT-H-14-laion2B-s32B-b79K @ 1c2b8495b28150b8a4922ee1c8edee224c284c0c
+  weights: data/raw/openclip_vith14/open_clip_model.safetensors
+  weights_sha256: 0084e75319a50ad85ef45377bad5bc38f2f58824459eb690048d51c9f8863be5
+  batch: 64
+prompts:
+  p1: 'a photo of a {}'
+  p2: openai_imagenet_templates                # open_clip OPENAI_IMAGENET_TEMPLATES (80), per-template L2 norm, mean, L2 norm
+alexnet:
+  weights: data/raw/openclip_vith14/alexnet-owt-7be5be79.pth   # torchvision IMAGENET1K_V1
+  layers: {conv1: 2, conv2: 5}                 # torchvision alexnet.features[:n]; channel-wise spatial mean
+audit:
+  phase_seed: 20261501                         # default_rng([seed, image index]); one random phase field for all three channels
+  blur_sigma_px: 8                             # Gaussian blur on the 224 x 224 CLIP input, mode reflect
+  edge_threshold: 0.1                          # hypot(scipy sobel x, y) / 8 (per-pixel gradient) of L*/100 at 224 x 224
+  edge_grid: 4
+matching:
+  thumb: 8
+  hist_size: 64
+  hist_edges: {L: [0, 25, 50, 75, 100], ab: [-128, -20, 0, 20, 128]}
+  gabor_size: 128
+  gabor_cycles: [4, 8, 16, 32, 64]
+  gabor_orient_deg: [0, 45, 90, 135]
+  gabor_sigma_k: 0.56                          # sigma = k / f pixels (1 octave bandwidth)
+  n_matched: 19
+  n_matched_relaxed: 9
+  tie_salt: 20261505
+ridge:
+  alphas: [0.1, 1, 10, 100, 1000, 10000, 100000, 1000000]
+  folds: 5
+  fold_salt: 20261502
+gate:
+  g0_threshold: 0.80
+  upper_limit: 0.02
+  null_perm: 1000
+  null_seed: 20261503
+  boot: 1000
+  boot_seed: 20261504
+embed_out: data/cache/fv_clip                   # server copy of the fv_embed run folder arrays (never committed)
+out: results/fv
