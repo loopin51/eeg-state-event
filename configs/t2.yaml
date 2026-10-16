@@ -1,0 +1,30 @@
+# F-IV T2 (D-109, amendment 1): density-matched TTS text-candidate identification with the stored B1 decoders (no training).
+# Every number is copied from D-109; nothing here is chosen after a T2 number is seen.
+b1_config: configs/stageB_b1.yaml       # the B1 jobs: results/runs/*_stageB_b1_A4_k{K}_f{F}[_phaserand]
+tts_features: data/cache/t1_tts/af_heart  # w2v_run.npy [1024, frames] float16 + meta.json, the 0-T cache (a932387, b8cc081)
+matched_sets: results/t2/matched_sets.json        # 0-T2 output (eeg-dir3); the only source of Q and M_i
+matched_sets_dev: results/t2/matched_sets_dev.json # amendment 1: development cells (k0_f0, validation runs 5 and 13)
+match_attrs: results/t2/match_attrs.json         # amendment 2: key -> [run, t, tau, n_w, n_L, n_S, D_T, seq] of the 11,220 queries
+pool: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19]   # 17-subject pool; 1 and 15 are the 19-subject report
+reinfer_check:                          # section 6: recorded w2v candidates, B1 definition, against scores.npz main_s{s}_r{r}
+  mrp_tol: 1.0e-4                       # |MRP difference| per cell
+  score_tol_rel: 1.0e-3                 # max |score difference| / score sd of the cell
+  out: results/t2/reinfer_check.json    # differences only, no MRP level
+align:
+  rule: null_rule_not_frozen            # frozen by an amendment after the development stage: fixed or lse0.5 (section 7)
+  lags: [-0.25, -0.2, -0.15, -0.1, -0.05, 0.0, 0.05, 0.1, 0.15, 0.2, 0.25]
+  lse_c: 0.5                            # tau_i = 0.5 x sd of row i over (lag, every same-run Q TTS candidate)
+  select_margin: 0.01                   # lse0.5 only if development matched TTS MRP(lse0.5) - MRP(fixed) >= 0.01
+infer_out: results/t2/scores               # t2_infer.py: one npz per job and mode (score matrices only)
+eeg_margin_s: 0.25                      # Q: the EEG window moved by +-0.25 s stays inside the run
+exclusion_s: 30.0                       # null: same-run candidates within 30 s of t_j left out; pairs with |t_j - t_i| < 30 s left out
+shift_null: {n_shift: 1000, min_shift_s: 30.0, seed: 20261318}
+bootstrap: {n_boot: 1000, seed: 20261311}         # subject x run pigeonhole (section 9)
+noise: {seed: 20261312, n_scale_windows: 2000}     # default_rng([seed, s, r]); channel sd of the subject's 14 training runs (preprocessed windows)
+mde: {seed: 20261313, n_sim: 200, z_sum: 2.486, threshold: 0.03, file: results/t2/mde.json}
+null_sim: {seed: 20261314, n_rep: 2000, n_shift: 100}   # n_shift: null draws per simulated cell (the verdict uses all 1,000)
+density: {seed: 20261315, unmatched_seed: 20261316}
+dev_gate: {excess_min: 0.04, noise_upper: 0.01, seed: 20261317}
+verdict: {alpha: 0.05, sesoi: 0.02, ni_margin: 0.03, ni_report: 0.02, out: results/t2/verdict.json,
+          gate0T2: results/t2/gate0T2.json, dev_stage: results/t2/dev_stage.json}
+de_baseline: {file: results/baselines/t2_de.json, sha256: null_not_committed, committed_at: null_not_committed, commit: null_not_committed}   # filled by the record after the DE commit

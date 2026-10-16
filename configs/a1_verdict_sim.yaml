@@ -1,0 +1,11 @@
+# Full-path check of the A1 verdict (scripts/a1_verdict_sim.py): information-0 fake run folders in the registered file formats
+# go through scripts/a1_mde.py and scripts/a1_verdict.py unchanged. No EEG, no decoder output, no test cell is read.
+verdict_config: configs/a1_verdict.yaml
+work_dir: /tmp/ese_a1_verdict_sim     # fake runs, DE, development record and configs (deleted and rebuilt each repetition)
+seed: 20261107
+candidate: lse                        # any registered N candidate (the fake gate "chooses" it)
+queries: {base: 40, step: 1, span_s: 600.0}   # queries per run r = base + step * r over span_s seconds (30 s exclusion applies)
+conditions:                           # effect: added to the diagonal score of the N arm (information 0 when 0)
+  - {name: info0, effect: 0.0, n_rep: 20}
+  - {name: strong, effect: 1.5, n_rep: 2}
+out: results/a1/verdict_sim.json

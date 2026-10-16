@@ -1,0 +1,33 @@
+# F-III A1 verdict and MDE (D-105 sections 4-8, amendments 1-5). Read by scripts/a1_mde.py and scripts/a1_verdict.py.
+# Every number here is copied from D-105 (and D-097 where D-105 refers to it); nothing is chosen after a result.
+a1_config: configs/a1.yaml     # lag_search.rule (frozen, amendment 4) and family_state (alpha transfer record)
+arms:
+  P1: configs/a1_p1.yaml
+  N: configs/a1_n.yaml         # candidate: frozen by the development-stage amendment (configs/a1_n.yaml candidate)
+runs_root: results/runs        # <date>_a1_<arm>[-<cand>]_A4_s<seed>_k<K>_f<F>[_phaserand] with test_cells.json and scores.npz
+seeds: [2036, 2037, 2038, 2039, 2040]
+decision_k: 2
+ks: [0, 1, 2, 4, 14]
+sesoi: 0.02
+alpha: {chain_A: 0.04, after_T1_fail: 0.05}   # level in force: configs/a1.yaml family_state.alpha_chain_A; both categories reported
+bootstrap: {n_boot: 1000, seed: 20261097}     # D-097 amendment 5 (3): seed-stratified pigeonhole, sqrt(n/(n-1)) inflation, 5 seeds
+protect: {key: d0_fixed, k: 2, percentile: 5, margin: -0.03}   # section 7: delta 0, no search, N - P1 90% lower > -0.03
+development: {file: results/a1/dev_stage.json}                 # the gate must have passed (section 9); otherwise not opened
+prerequisites:                 # section 6
+  phaserand: {seed: 2036, subject_fold: 0, k: 2, percentile: 97.5}
+  pre: {k: 2, level_upper: 0.52, diff_upper: 0.02}
+  de_baseline: {file: results/baselines/a1_de_j250.json, commit: ddd718b060f3e1ca3a034efd13592cd7136f94d1, committed_at: '2026-10-16T06:55:14+09:00',
+                sha256: 3ce671222a3693c36d13121652b622264e9be270c179565d19123f2974169c52}
+  n_gt_de: {k: 2, percentile: 5}
+  collapse: {seed: 2036, k: 2, p_min: 0.01, ks_min: 0.01, identity_tol: 1.0e-12}
+  device: RTX 5080
+shift_null: {n_shift: 1000, seed: 20261012, min_shift_s: 30.0}   # B1 amendment 1 onset-order shift; candidates >= 30 s from i and j (D-100)
+out: results/a1/verdict.json
+mde:                           # section 6, prerequisite 7 (D-097 section 10 method)
+  file: results/a1/mde.json
+  k: 2
+  n_boot: 1000
+  seed: 20261098
+  alpha: 0.04
+  power: 0.8
+  threshold: 0.03              # MDE > 0.03 -> "hold (MDE)"; no seed extension rule

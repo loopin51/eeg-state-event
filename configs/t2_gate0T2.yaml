@@ -1,0 +1,38 @@
+# D-108 T2 stimulus gate 0-T2 (EEG-free). Rules: reports/fiv_stage/notes/t2_gate0T2_draft_kr.md (24259be, 3a396e9) -> D-109.
+# Written before any 0-T2 number (candidate counts, MRP, meters) is computed.
+t1_config: configs/t1_tts.yaml              # b1_config, TTS cache (af_heart rendering, w2v xlsr-53 14-18), windows of 0-T
+voice: af_heart
+stimuli: data/raw/ds004408/stimuli           # audioNN.wav (heard audio, run r -> audio{r+1:02d}.wav)
+
+unit: "words with heard onsets in [t - 0.5, t + 2.5)"   # U(q), as LOWONLY of 0-T
+vad:                                          # TTS speech frames
+  win_s: 0.025
+  hop_s: 0.010
+  ref_percentile: 95                          # per TTS run
+  drop_db: 35.0                               # speech if frame dB >= p95 - 35 dB
+  pause_min_s: 0.10                           # TTS pause = non-speech run >= 0.10 s; heard pause = word gap >= 0.10 s
+
+matching:
+  min_sep_s: 30.0                             # same-run candidates only; never relaxed
+  n_cand: 19
+  salt: "|20261301"                           # sha256("r{run}_w{query word}|r{run}_w{candidate word}" + salt)
+  levels:                                     # relaxed only in this order
+    - {name: L0, pool: same_run,       letters_rel: 0.10, syl_abs: 1, dur_rel: 0.10}
+    - {name: L1, pool: fold_test_runs, letters_rel: 0.10, syl_abs: 1, dur_rel: 0.10}
+    - {name: L2, pool: fold_test_runs, letters_rel: 0.15, syl_abs: 1, dur_rel: 0.15}
+    - {name: L3, pool: fold_test_runs, letters_rel: 0.20, syl_abs: 2, dur_rel: 0.20}
+  level_coverage_target: 0.80                 # first level with coverage >= 0.80; else the highest coverage (ties -> stricter)
+
+gate:
+  pass_raw_mrp_lower90: 0.90                  # (i)
+  pass_excess_upper90: 0.02                   # (ii) every meter x {tts, audio}
+  pass_coverage: 0.50                         # (iii)
+  bootstrap: {n: 1000, seed: 20261302, unit: test run (20)}
+  shift_null: {n_shift: 1000, min_shift_s: 30.0, seed: 20261303}
+  meters: [LOWONLY_PLUS, TTS_DUR, PAUSE_PUNCT, RATE, SENTPOS, ORDER]
+  rate: {env_fs: 120, rms_win_s: 0.025, audio_fs: 16000, bands_hz: [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8]], total_hz: [1, 8]}
+  report_only:
+    env_t_lags_s: [-0.25, 0.25, 0.05]
+    delay_search_lags_s: [-0.25, 0.25, 0.05]
+
+out: results/t2

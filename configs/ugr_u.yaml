@@ -1,0 +1,126 @@
+# D-110 (registered before any UGR-MINDVOICE EEG is downloaded or read): U0 (no EEG), U1 (R-b1) and U2 (perceived cue word,
+# session to session) on UGR-MINDVOICE, covert (Silent*) samples sealed. alpha none (exploration, D-108 decision 9).
+data_root: /mnt/data/eeg_datasets/ugr_mindvoice          # BIDS under meta/files/Data (events, sidecars), EDF under eeg/ after download
+events_glob: meta/files/Data/sub-*/ses-*/eeg/*_events.tsv
+materials: meta/files/Materials
+listing: meta/listing.json
+cache: data/cache/ugr_mindvoice
+out: results/ugr
+
+seal:                                   # built from events only (scripts/ugr_seal.py); sha256 registered in D-110
+  out: results/ugr/seal.json
+  fs: 1000                              # EEG events 'sample' column (1 kHz EDF sample index)
+  block_gap_ms: 3000                    # consecutive trials of the same mode closer than this form one block
+  real_preroll_ms: 500                  # Real block = [first StartFixation - preroll, last EndITI); first-trial EEG window starts <= 320 ms before StartFixation
+  silent_margin_ms: 1000                # read ranges must not intersect [silent start - margin, silent end + margin); widen to the filter length if a longer one is ever needed
+  read_parts: [Experiment]              # practice trials are never read (any mode)
+  sealed_parts: [Experiment, Practice]  # every Silent trial is sealed
+
+seal_registered:                        # D-110 section 1 (1286ab3); kept outside 'seal' so the rule block hashed into seal.json stays unchanged
+  real: 0de2741364e5d63d26b9dd45169c3e272c03962b104932c96ff06c2949e37e52
+  silent: 0424df6a5c7703951cbcbf8cffe8a24b8ff64a2e49f6ec33d00451350df2ba38
+  file: 7ec2a78f274bd9f668af1bbfc5541bcaf263fd033ccadff4cf6d95286b35bdc4
+
+subjects:
+  targets: [sub-04, sub-05, sub-06, sub-09, sub-12, sub-13]          # two-session subjects (D-100 exclusion rule 1 drops sub-15 ses-02)
+  pool_single: [sub-01, sub-02, sub-03, sub-07, sub-08, sub-10, sub-11, sub-14]
+  pool_extra_sessions: [sub-15/ses-01]
+  primary_exclude_sessions: [sub-15/ses-02]
+  primary_exclude_blocks: {sub-13/ses-02: [-3]}                       # third-to-last experiment block (D-100 rule 2; applies only if Real)
+
+window:                                 # relative to StartStimulus of an audio-cue trial
+  eeg_tmin: -1.32                       # EEG [-1.32, 1.68) s = 360 samples at 120 Hz; min(StartSpeech - StartStimulus) = 1.690 s
+  eeg_tmax: 1.68
+  audio_offset_s: 0.15                  # audio window = EEG window - 0.15 s (B1 offset_s): [-1.47, 1.53) s
+  sample_rate: 120
+  baseline_s: 0.5                       # A4 load-time baseline (first 0.5 s of the window)
+  clamp: 20.0
+
+preprocess:                             # A4 (D-084 / D-099 section 4) applied per read block, reflect padding, never across blocks
+  resample_first: 500
+  highpass_hz: 0.5
+  reference: car                        # bad and flat channels left out of the mean
+  drop_channels: [EOG1, EOG2, TP9, TP10]   # EOG1/EOG2 (no position); sub-13 ses-01 uses TP9/TP10 at those indices
+  eog_channels: [EOG1, EOG2]
+
+target:
+  model: facebook/wav2vec2-large-xlsr-53
+  layers: [14, 15, 16, 17, 18]
+  clip_s: 3.0
+  cue_at_s: 1.47                        # cue wav onset inside the 3-s audio clip (audio window start = -1.47 s)
+
+u0:
+  strata:                               # candidate set C(w) for a query of word w
+    same: [Syl_num, stressEnd]
+    dur_tol: 0.10                       # |dur(v) - dur(w)| <= 0.10 dur(w); dur = cue speech duration (VAD below)
+    min_candidates: 5                   # queries of words with |C(w)| < 5 leave the primary set
+    min_words_with_min_candidates: 60   # of 91
+    narrow_once: {add_same: [lexical], dur_tol: 0.05}   # lexical = real word / pseudoword
+  vad: {frame_ms: 25, hop_ms: 10, thresh_db_below_peak: 35, min_run_ms: 30}
+  gate_meters: [DUR, NLET, FREQ, BLOCKPOS, ADJ_table, ADJ_copy]
+  report_meters: [SYL, STRESS, FONINI, LEXICAL, ENV10]
+  null_perm: {n: 1000, seed: 20261401}  # within-block label permutation of the ses-02 query labels
+  bootstrap: {n: 1000, seed: 20261402}  # trials resampled within subject
+  pass_excess_upper90: 0.02
+  rd: {trials_per_min: 10.22, max_bits_per_min: 0.3, z: 2.486}
+
+u0_amend1:                              # D-110 amendment 1, post-result change (user approval 2026-10-16); strata, L1, 0.02, word-count rule, Q, nulls of the other meters unchanged
+  out: results/ugr/u0_amend1.json       # first result results/ugr/u0.json (sha256 e84d1c40...) is kept as is
+  meter_target: time_mean               # cue clip w2v (target section, scripts/ugr_targets.py) averaged over its 360 frames, standardised with the fold's training words
+  word_folds: {n: 5, salt: '|20261410'} # words ordered by sha256(word + salt), fold = rank % n; pair (w, v) scored by the model fitted without both folds; penalty by inner CV over the remaining folds (stageB_b1_meters ALPHAS)
+  ridge_meters:                         # gate: attributes of the query's true word -> ridge -> cosine to the candidate targets
+    DUR: [dur]
+    NLET: [n_letters]
+  ridge_report_meters:                  # report only
+    SYL: [Syl_num]
+    STRESS: [stressEnd_onehot]
+    FONINI: [fon_ini_onehot]
+    LEXICAL: [lexical]
+    ENV10: [env10]
+    LOWDIM: [dur, n_letters, Syl_num, stressEnd_onehot, lexical]
+  freq_null: item_uniform               # FREQ: truth uniform over C(w), null MRP of a query = mean rank over v in C(w)
+  word_bootstrap: {n: 1000, seed: 20261413}   # cluster bootstrap over words (one target per word)
+  ci_method: null                       # rule: share of info-0 draws failing the gate <= 0.10 (both -> word, neither -> stop). Neither met it (L0 query 0.88, word 1.00): no method chosen, real-target values never computed, U0 "cannot be judged (too few stimuli)" (D-110 amendment 1)
+  info0: {seed: 20261411, plant_seed: 20261412, plant_snr: 1.0}   # code-path checks before the amendment commit (random targets; planted duration signal)
+
+u1:
+  roi: [Fz, F1, F2, FCz, FC1, FC2, Cz, C1, C2]
+  band_hz: [0.5, 30.0]
+  sample_rate: 250
+  baseline_s: [-0.2, 0.0]
+  epoch_s: [-0.2, 0.5]
+  reject_ptp_uv: 200                    # ROI-mean peak-to-peak
+  exclude_items: [silence]              # no cue wav in Materials (an audio-cue 'silence' trial plays no sound); left out of every cue type (interpretation record, before any EEG result)
+  peak_search_s: [0.08, 0.20]           # per-subject N1 latency from ses-01 (audio - text difference wave)
+  half_width_s: 0.025
+  null_perm: {n: 1000, seed: 20261403}  # cue-type labels permuted within block in ses-02
+  pass_p: 0.05
+  p100: {roi: [O1, Oz, O2], peak_search_s: [0.08, 0.14], seed: 20261407}   # report only: visual (text, picture) - audio cue, aligned to StartStimulus
+
+u2:
+  seeds: [2036, 2037, 2038, 2039, 2040]
+  t_init:                               # B1 shared models (RTX 4070), subject folds 0-4 x run fold 0; sha256 first 16 hex
+    2036: {path: results/runs/2026-10-11_stageB_b1_A4_k0_f0/shared.pt, sha256_16: e4becfd094975b90}
+    2037: {path: results/runs/2026-10-12_stageB_b1_A4_k1_f0/shared.pt, sha256_16: af273304d66b6af0}
+    2038: {path: results/runs/2026-10-12_stageB_b1_A4_k2_f0/shared.pt, sha256_16: edd30149f0736eb7}
+    2039: {path: results/runs/2026-10-12_stageB_b1_A4_k3_f0/shared.pt, sha256_16: bd712ad010c3ac84}
+    2040: {path: results/runs/2026-10-12_stageB_b1_A4_k4_f0/shared.pt, sha256_16: 382978bf353b11ea}
+    subject_rows: mean_of_b1_training_subjects   # rows [:nT] only (run.trainers order); target rows in shared.pt are untrained; target_layers.pt never read
+  shared:
+    lr: 3.0e-4
+    batch_size: 256
+    eval_every: 150
+    patience_units: 4
+    min_updates: 600
+    max_updates: 6000
+    valid_block_mod: 5                  # Real blocks with index % 5 == 0 in each pool session = early-stop validation
+    mask_same_item_negatives: true
+    record_best_vs_min_updates: true    # log whether the best update fell below min_updates (eeg-b1)
+  calibration: {lr: 3.0e-4, batch_size: 256, updates_per_epoch: 200, max_epochs: 20, patience: 3, valid_block_mod: 5}
+  null_perm: {n: 1000, seed: 20261404}
+  bootstrap: {n: 1000, seed: 20261405}
+  noise_input: {seed: 20261406, max_excess_upper90: 0.01}
+  de: {bands: [[1, 4], [4, 8], [8, 13], [13, 30], [30, 45]], cv_groups: 5}
+  eog_meter_channels: [EOG1, EOG2, Fp1, Fp2, AF7, AF8]
+  hf_meter: {channels: [T7, T8, FT7, FT8, FT9, FT10, TP7, TP8], band_hz: [30, 100]}
+  report: {perm_init_seeds: [2036, 2037], full91: true, topk: [1, 10], syllables: true}
