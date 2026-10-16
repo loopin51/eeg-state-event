@@ -1,0 +1,35 @@
+# D-113 arm c (THINGS F-V decoder applied to Gao et al. 2026, report only), section 6. Pipeline control first (6.4).
+# scripts/fv_gao_c_prep.py (server CPU, gpuq) -> scripts/fv_gao_c_infer.py (k3s RTX 5080, embeddings only) -> scripts/fv_gao_c_score.py (server CPU)
+train_config: configs/fv_train.yaml          # model definitions, dev concepts (salt, n), dev targets, names table and names_text
+stage_dir: data/cache/gao_armc               # inputs + model copies; staged to the k3s shared volume as data group `fvgaoc`
+out: results/gao_imagery
+layer: k0                                    # D-113 6.1: population layer (mean of the trainers' layers), no Gao calibration
+invalid: -0.1                                # src/ese/model/brain_clip.py INVALID: masked out of the bm spatial attention
+channels30:                                  # Gao's 32 channels minus Fz (reference after x - x_Fz) and Fpz (not in THINGS), D-113 6.2
+  [Fp1, Fp2, F3, F4, F7, F8, FCz, FC3, FC4, FT7, FT8, Cz, C3, C4, T7, T8, CP3, CP4, TP7, TP8, Pz, P3, P4, P7, P8, PO3, PO4, Oz, O1, O2]
+pipeline_control:                            # D-113 6.4: THINGS development set A (target's session-4 training runs, 200 development concepts)
+  session: 4
+  w30_session: 4                             # W30 from that session's training-run single epochs (sigma^(1/2) x whitened, 30 channels)
+  ratio_min: 0.5                             # MRP excess with the 30-channel input >= 0.5 x the 63-channel value (k0 layer)
+  n_perm: 1000                               # concept-permutation null as gate D (i): true columns re-assigned among the evaluated concepts
+  perm_seed: 20261904
+infer:
+  batch: 256
+names:                                       # D-113 6.3 candidates: scripts/fv_gao_c_names.py (k3s RTX 5080, data group fv_weights)
+  table: configs/fv_gao_c_names.tsv          # Gao item -> prompt name (scissor -> THINGS scissors); the 7 THINGS rows check against names_text
+  embed_config: configs/fv_eegfree.yaml      # CLIP arch, weights sha256 and prompts p1 / p2 of scripts/fv_embed.py (same text stage)
+gao:                                         # D-113 6.2 inputs (scripts/fv_gao_c_prep.py --part gao); details fixed before any arm c value
+  config: configs/fv_gao.yaml                # bids path, bad runs, ERP-check result (perception offset shift)
+  highpass_hz: 0.01                          # causal first-order Butterworth (as the THINGS online filter), zi matched to the first sample
+  perception_offset_s: -6.0                  # tau = m - 6 s (+ erp_check.json shift_s, 0.0 in job 553)
+  imagery_offsets_s: [1.0, 2.0, 3.0]         # tau = m + 1, 2, 3 s; the three embeddings are L2-normalised and averaged at scoring
+score:                                       # D-113 6.3-6.5 Gao scoring (scripts/fv_gao_c_score.py --part gao); details fixed before any arm c value
+  mode: final                                # models: every non-shuffle run of this mode in the infer folder (Q2: 10 folds x seeds, k0)
+  prompt_index: data/cache/things_eeg2/clip_vith14/index.json   # g0_pass_prompt -> names_text_P1 / P2 and clip_txt_p1 / p2
+  combined: [AVI, OVI]                       # animal and object (the 7 THINGS training concepts), equal weight; FVI (figures) reported alone
+  n_perm: 1000                               # null: labels permuted within (subject, task) over its scored trials (no training: = name re-assignment)
+  perm_seed: 20261905
+  boot: {n: 1000, seed: 20261906}            # subjects resampled
+  meters:                                    # D-113 6.3: DE + sLDA as arms a / b, trained on the arm b split (perception -> imagery),
+    eye: {bands: [theta, alpha, beta], channels: [Fp1, Fp2, F7, F8]}           # compared with arm c on the same test trials
+    muscle: {bands: [gamma], channels: [T7, T8, FT7, FT8, TP7, TP8]}

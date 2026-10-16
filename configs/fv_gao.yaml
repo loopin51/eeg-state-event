@@ -1,0 +1,52 @@
+# D-113 (Gao et al. 2026 perception -> imagery extension test, no alpha). Arms a and b, meters, controls.
+# Implementation details fixed before any Gao EEG value: reports/fv_stage/notes/gao_ab_implementation_kr.md
+bids: data/raw/gao_imagery/bids
+cache: data/cache/gao_imagery
+out: results/gao_imagery
+bad_runs: [[sub-08, ses-01, OVI], [sub-13, ses-02, OVI]]   # D-113 section 7 (label anomalies, also in the Status codes)
+sensitivity_relabel: {run: [sub-13, ses-02, OVI], from: condition 5, to: chair}   # report only
+tasks:
+  AVI: {category: animal, items: [dog, bird, fish], block: 30}
+  FVI: {category: figure, items: [pentagram, square, circle], block: 30}
+  OVI: {category: object, items: [scissor, watch, cup, chair], block: 40}
+preprocess:                     # D-113 5.1: common average of the 32 EEG channels, FIR 1-45 Hz, 50 Hz notch, 250 Hz
+  reference: average
+  l_freq: 1.0
+  h_freq: 45.0
+  notch: 50.0
+  sfreq: 250
+bands: {theta: [4, 8], alpha: [8, 13], beta: [13, 30], gamma: [30, 45]}   # gamma = 30-45 Hz muscle meter (D-113 5.3 item 5)
+windows:                        # seconds relative to the event m (imagery onset, D-113 4.1)
+  obs_anchored:                 # moved together by the ERP-check shift (D-113 4.1), if any
+    fixation: [-7.0, -6.0]
+    obs1: [-6.0, -5.0]
+    perception: [-5.5, -2.0]
+    late: [-2.5, -2.0]
+  m_anchored:
+    imagery: [1.0, 4.0]
+    im1: [1.0, 2.0]
+    im2: [2.0, 3.0]
+    im3: [3.0, 4.0]
+    rest: [4.5, 8.0]
+erp:                            # label-free check of the observation-onset assumption (D-113 4.1)
+  channels: [O1, Oz, O2]
+  baseline: [-6.2, -6.0]
+  search: [-6.0, -5.0]          # first positive local maximum >= rel_height x the largest positive value in the search range
+  rel_height: 0.5
+  pass: [-5.95, -5.75]
+  expected: -5.90               # shift = peak - expected when the peak is outside `pass` (applied once)
+pipeline_control:               # D-113 5.5 (R-b1): obs1 vs fixation ERP size per subject, trial-wise window swap
+  n_perm: 1000
+  seed: 20261901
+  q: 0.95
+  min_subjects: 12              # majority of 22
+features:
+  main: {bands: [theta, alpha, beta], channels: all}                     # 96 dimensions
+  eye: {bands: [theta, alpha, beta], channels: [Fp1, Fp2, Fpz, F7, F8]}
+  temporal: {bands: [theta, alpha, beta], channels: [T7, T8, FT7, FT8, TP7, TP8]}
+  muscle: {bands: [gamma], channels: all}
+  alpha_occ: {bands: [alpha], channels: [O1, Oz, O2, PO3, PO4, P7, P8]}  # report only (lee)
+decoder: {solver: lsqr, shrinkage: auto}   # standardisation with the training-side mean / sd, then LDA, one per category
+perm_null: {n: 1000, seed: 20261902}          # training labels permuted within training blocks, refit
+boot: {n: 1000, seed: 20261903}            # subjects resampled
+mde: {z: 2.486, sd_between: 0.05}          # D-100 R-d formula; simulation-free approximation with a between-subject sd

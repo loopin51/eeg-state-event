@@ -1,0 +1,40 @@
+# F-V verdict job (D-112 section 6, amendments 1-4): three stages V1 (server CPU) -> V2 (k3s RTX 5080) -> V3 (server CPU),
+# plus the information-zero MDE simulation committed before V1. scripts/fv_verdict.py --stage {mde,v1,v2,v3}.
+train_config: configs/fv_train.yaml          # meta, targets, names, cache, model
+seal_table: results/things_eeg2/seal_test_sha256.tsv
+test_name: raw_eeg_test.npy
+inputs_dir: data/cache/things_eeg2/verdict_inputs     # V1 output; never committed (data/ is ignored); staged to a separate k3s folder
+eegfree_dir: results/fv                     # eeg-a4: matched_sets.json (report-only matched-set MRP)
+out_dir: results/fv_verdict                  # committed: V1 manifest, ridge test scores, MDE, V3 verdict
+subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+eval_session: 4                              # H1-H4 inputs: session 4 test runs (about 20 repetitions per test image)
+r_curve: [1, 2, 5, 10, 20]                   # report: mean of the first r repetitions (time order) of session 4; 20 = all of session 4
+final:
+  candidate: bm                              # freeze: development choice (seed-mean MRP bm 0.8068, nice 0.8058, difference < 0.005 -> bm; results/fv/dev_choice_A_ses4.json)
+  seeds: [20261811, 20261812, 20261813]
+  shuffle_seed: 20261811                     # label-shuffle model training seed (permutation pi: fv_train.yaml shuffle_seed 20261821)
+  runs_glob: results/runs/*_fv_final_{cand}_s{seed}_t{tt}{suffix}
+  shuffle_suffix: _shuffle
+  mode: final
+conditions: [k0, ses1, ses12, ses123]        # H1 = ses123, H3 = k0
+single_conditions: [k0, ses123]              # single-trial (r = 1) inputs: H4 = ses123
+seeds:
+  phase: 20261851                            # default_rng([phase, subject, code]); one random phase per frequency, the same for all channels
+  noise: 20261822                            # default_rng([noise, subject]); Gaussian with the channel variances of the 20-repetition inputs
+  perm: 20261841                             # default_rng([perm, subject]); concept-permutation null
+  boot: 20261831                             # crossed subject x concept pigeonhole
+  mde: 20261861
+n_boot: 1000
+n_perm: 1000
+n_mde: 200
+rules:
+  lower_pct: 5                               # one-sided 95% lower bound (alpha 0.05)
+  h1_min: 0.05
+  h3_min: 0.05
+  h4_min: 0.02
+  premise_upper_pct: 95
+  premise_lower_pct: 5
+  phase_excess_max: 0.01
+  meter_upper_max: 0.52
+  prevalence_min: 7
+mde_power_z: [1.6448536, 0.8416212]          # one-sided alpha 0.05, power 0.80

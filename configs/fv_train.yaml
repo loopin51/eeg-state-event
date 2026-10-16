@@ -36,7 +36,9 @@ calibration:                                  # D-090: shared network frozen in 
   sessions: {ses1: [1], ses12: [1, 2], ses123: [1, 2, 3]}   # k in {0, session 1, sessions 1-2, sessions 1-3}; k0 = the mean layer
   lr: 3.0e-4
   batch: 256
-  max_epochs: 50
+  max_epochs: 100                             # freeze (D-112 amendment 2): 50 in the 12 development runs and their gate D (11bf018); raised for the final runs because
+                                              # nice stopped at the cap in all three steps of the k3s timing run (training-process observation only, decided before any
+                                              # development MRP was seen); bm stopped at 25-40 epochs, so practically unaffected
   patience: 5
 eval:
   topk: [1, 5]
