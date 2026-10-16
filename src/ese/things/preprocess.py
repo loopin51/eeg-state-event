@@ -76,3 +76,12 @@ def whiten(X, W):
     """W [C, C] applied to every epoch, in place on a float32 array"""
     for a in range(0, len(X), 2048): X[a:a + 2048] = np.einsum('dc,nct->ndt', W.astype(np.float32), X[a:a + 2048])
     return X
+
+
+def test_epochs(path, cfg, mvnn_npz, seal_table, unseal):
+    """verdict job only: the sealed test file of one session -> whitened epochs with that session's TRAINING-run W.
+    rawio.guard stops unless unseal is True and the file's sha256 matches the seal table."""
+    from ese.things import rawio
+    d = rawio.load_dict(path, 'raw', unseal=unseal, seal_table=seal_table); E = epochs_from_raw(d, cfg); del d
+    m = np.load(mvnn_npz); assert list(m['ch_names']) == E['ch_names'], 'test and training channel orders differ'
+    whiten(E['X'], m['W']); return E

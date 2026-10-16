@@ -1,0 +1,57 @@
+# F-V (D-111, D-112 sections 3-4) LOSO shared encoder + D-090 subject-layer calibration + development evaluation.
+# scripts/fv_train.py; GPU work on k3s RTX 5080 (D-095, D-111 decision 5). Values marked (dev) are fixed in the development stage
+# and frozen with the D-112 freeze commit.
+prep_config: configs/fv_preprocess.yaml       # cache_dir and the epoch grid
+meta: data/cache/things_eeg2/image_meta.json  # scripts/fv_meta.py
+positions: data/cache/things_eeg2/positions.npy
+targets:                                      # eeg-a4 (scripts/fv_embed.py), rows = event codes - 1 (index.json checks the order)
+  dir: data/cache/things_eeg2/clip_vith14
+  train_image: train_image.npy                # [16540, 1024] L2-normalised OpenCLIP ViT-H-14 laion2b_s32b_b79k image embeddings
+  names_text: names_text_P1.npy               # [1854, 1024], rows = configs/fv_names.tsv rows; the prompt version follows G0 (index.json)
+  names_table: configs/fv_names.tsv
+subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+sessions: [1, 2, 3, 4]
+dev:
+  salt: FV-dev                                # sha256("{training folder name}|FV-dev"), first 200 (D-112 section 3.1)
+  n: 200
+  dev_targets: [1, 5, 9]                      # D-112 section 4.4
+  eval_session: 4                             # set A (gate D, candidate choice): per development concept, mean of every image x repetition in session 4
+  report_sessions: [3, 4]                     # set B (report only): each development concept from its own session 3 or 4
+valid:
+  salt: FV-valid                              # early-stopping concepts: first 10% of the non-development concepts by sha256 (shared and calibration)
+  fraction: 0.1
+shuffle_seed: 20261821                        # label-shuffle model: concept permutation pi, image j of concept A -> embedding of image j of pi(A)
+model:
+  out_dim: 1024
+  n_times: 250
+  bm: {body_out: 256, n_bins: 10, merger_channels: 270, pos_dim: 2048, merger_dropout: 0.2, initial_linear: 270, hidden: 320, depth: 10, proj_dropout: 0.5}
+  nice: {k: 40, m1: 25, m2: 51, s: 5, dropout: 0.5, proj_dropout: 0.5}   # Song et al. 2024 table 1 and section 4.2
+optim:                                        # (dev) epoch rule: best validation loss, patience, cap
+  bm: {lr: 3.0e-4, betas: [0.9, 0.999], batch: 256}      # 512 used 10.4 GB with one trainer on the RTX 4070 smoke (job 498)
+  nice: {lr: 2.0e-4, betas: [0.5, 0.999], batch: 1000}
+  max_epochs: 100
+  patience: 10
+  logit_scale_init: 14.285714                 # 1 / 0.07 (CLIP)
+calibration:                                  # D-090: shared network frozen in eval mode, target layer from the training-subject mean
+  sessions: {ses1: [1], ses12: [1, 2], ses123: [1, 2, 3]}   # k in {0, session 1, sessions 1-2, sessions 1-3}; k0 = the mean layer
+  lr: 3.0e-4
+  batch: 256
+  max_epochs: 50
+  patience: 5
+eval:
+  topk: [1, 5]
+  noise_seed: 20261822                        # Gaussian input with the evaluation inputs' channel variances (gate D iii)
+ridge:                                        # scripts/fv_ridge.py (D-112 5.4-5.6): DE + ridge, time-domain ridge, eye and pre-stimulus meters
+  salt: FV-ridge                              # concept folds for the penalty CV: sha256("{folder}|FV-ridge") order, i % 5
+  input_tmin: 0.0
+gate_d:                                       # scripts/fv_dev_gate.py (D-112 4.4-4.5, definitions fixed with the coordination session 2026-10-17)
+  tie: 0.005                                  # candidate choice: seed-mean MRP (set A, ses123); difference < tie -> bm
+  n_perm: 1000
+  perm_seed: 20261841                         # (i) concept-permutation null; pass: MRP - null mean >= excess_min (null p95 reported)
+  excess_min: 0.10
+  n_boot: 1000
+  boot_seed: 20261842                         # (ii), (iii) targets x concepts pigeonhole, 5th / 95th percentiles
+  noise_upper: 0.51
+  out_dir: results/fv
+smoke: {trainers: 2, max_epochs: 2, max_updates: 20, cal_epochs: 1}
+out_root: results/runs

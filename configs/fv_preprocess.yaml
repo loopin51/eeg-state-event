@@ -1,6 +1,7 @@
 # F-V (D-111) THINGS-EEG2 preprocessing: one session's training file per job, written to data/cache/things_eeg2/.
 # Literature comparison (Gifford 2022 code 02_eeg_preprocessing/preprocessing_utils.py read 2026-10-17; Song 2024 NICE sec. 4.1):
-#   recording        : 63 EEG channels + stim, 1000 Hz, online 0.1-100 Hz (NICE 4.1); used as stored, no re-referencing (same as both)
+#   recording        : 63 EEG channels + stim, 1000 Hz, float64 volts; the files' own keys say highpass 0.01 / lowpass 100 Hz (sub-01 ses-01,
+#                      job 489; NICE 4.1 writes 0.1-100 Hz); used as stored, no re-referencing, no separate EOG channel (same as both)
 #   low-pass + rate  : ours  = linear-phase FIR (Kaiser) pass 100 Hz / stop 125 Hz, 60 dB, then 4-ms grid inside each epoch (250 Hz)
 #                      Gifford = MNE Epochs.resample to 100 Hz after epoching (MNE's own FFT low-pass); NICE = 250 Hz (method not stated)
 #   channels         : ours = all 63 EEG (as NICE); Gifford = 17 occipital/parietal (regexp ^O|^P)
@@ -15,6 +16,7 @@
 #                      with repetitions of different sessions shuffled (session identity lost; not usable for the session split)
 data_root: data/raw/things_eeg2/raw-eeg        # sub-XX/ses-YY/raw_eeg_training.npy (HF mirror layout, eeg-dir3)
 seal_table: results/things_eeg2/seal_test_sha256.tsv
+meta_source: data/raw/things_eeg2/image_metadata.npy
 cache_dir: data/cache/things_eeg2
 subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 sessions: [1, 2, 3, 4]

@@ -16,6 +16,7 @@ from numpy.lib import format as npformat
 
 TEST_NAME = 'raw_eeg_test.npy'
 KEYS = {'raw': {'ch_names', 'sfreq', 'ch_types', 'raw_eeg_data'}}
+KEYS_OPTIONAL = {'raw': {'highpass', 'lowpass'}}          # numeric filter settings of the recording (seen in sub-01 ses-01, job 488)
 META_REQUIRED = {'train_img_concepts', 'train_img_files', 'test_img_concepts', 'test_img_files'}
 META_OPTIONAL = {'train_img_concepts_THINGS', 'test_img_concepts_THINGS'}
 
@@ -81,7 +82,8 @@ def load_dict(path, kind='raw', unseal=False, seal_table=None):
     assert isinstance(arr, np.ndarray) and arr.shape == () and arr.dtype == object, f'{path}: unexpected outer object {type(arr)}'
     d = arr.item(); assert isinstance(d, dict), f'{path}: content is {type(d)}, not a dict'
     if kind in KEYS:
-        assert set(d) == KEYS[kind], f'{path}: keys {sorted(d)} differ from the expected {sorted(KEYS[kind])}'
+        assert KEYS[kind] <= set(d) <= KEYS[kind] | KEYS_OPTIONAL[kind], f'{path}: keys {sorted(d)} differ from the expected {sorted(KEYS[kind])} (+ optional {sorted(KEYS_OPTIONAL[kind])})'
+        for k in KEYS_OPTIONAL[kind] & set(d): assert np.ndim(d[k]) == 0 and isinstance(float(d[k]), float), f'{path}: {k} = {d[k]!r} is not a number'
         check_raw(d, path)
     elif kind == 'meta':                                                     # image_metadata.npy
         assert META_REQUIRED <= set(d) <= META_REQUIRED | META_OPTIONAL, f'{path}: keys {sorted(d)} outside {sorted(META_REQUIRED | META_OPTIONAL)}'

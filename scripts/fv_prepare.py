@@ -6,7 +6,8 @@ epochs. The test file is never opened here (rawio.guard stops it); it is preproc
 Writes into cache_dir/sub-XX/:
   ses-YY_training.npy         float16 [n, 63, 300] whitened epochs (open_memmap)
   ses-YY_training_events.npz  code (image condition, 1-based), sample (1000-Hz event sample), rep (repetition index of the code
-                              inside this session, in time order), order (position in the session)
+                              inside this session, in time order), order (position in the session), imgavg_code, imgavg_nrep
+  ses-YY_training_imgavg.npy  float16 [n_images, 63, 250] repetition mean per image of this session, model input window 0..1 s
   ses-YY_mvnn.npz             sigma, W (= sigma^-1/2), ch_names, times
   ses-YY_prep.json            input sha256, counts, timings, peak memory (ru_maxrss) after each stage
 and cache_dir/positions.npy + channels.json (2D positions in the common frame of src/ese/listen/positions.py; checked equal for
@@ -43,7 +44,7 @@ def main():
     d = rawio.load_dict(src, 'raw'); mem['load'] = peak_gb(); x = d['raw_eeg_data']
     print(f'loaded {src}: {x.shape} {x.dtype} sfreq {d["sfreq"]} ({time.time() - t0:.0f}s, peak {mem["load"]:.2f} GB)', flush=True)
     E = P.epochs_from_raw(d, c, log=lambda s: print(s, flush=True)); mem['epochs'] = peak_gb()
-    info = dict(dtype=str(x.dtype), shape=list(x.shape), sfreq=float(d['sfreq']), amplitude_sd=float(np.std(x[[i for i, t in enumerate(d['ch_types']) if t == 'eeg'][0], ::1000])))
+    info = dict(dtype=str(x.dtype), shape=list(x.shape), sfreq=float(d['sfreq']), amplitude_sd=float(np.std(x[[i for i, t in enumerate(d['ch_types']) if t == 'eeg'][0], ::1000])), highpass=float(d['highpass']) if 'highpass' in d else None, lowpass=float(d['lowpass']) if 'lowpass' in d else None, ch_names=list(d['ch_names']))
     del d, x
     code = E['code']; order = np.arange(len(code)); rep = np.zeros(len(code), np.int64)
     for v in np.unique(code): ii = np.where(code == v)[0]; rep[ii] = np.arange(len(ii))
@@ -51,7 +52,12 @@ def main():
     P.whiten(E['X'], W)
     Y = np.lib.format.open_memmap(os.path.join(out, f'{tag}_training.npy'), mode='w+', dtype=c['store_dtype'], shape=E['X'].shape)
     Y[:] = E['X']; Y.flush(); del Y; mem['write'] = peak_gb()
-    np.savez(os.path.join(out, f'{tag}_training_events.npz'), code=code, sample=E['sample'], rep=rep, order=order)
+    # per-image repetition mean of this session over the model input window (training input; session subsets are count-weighted means)
+    ucode, inv, nrep = np.unique(code, return_inverse=True, return_counts=True); ti = E['times'] >= c['epoch']['input_tmin'] - 1e-9
+    srt = np.argsort(inv, kind='stable'); A = np.add.reduceat(E['X'][srt][:, :, ti], np.r_[0, np.cumsum(nrep)[:-1]], axis=0); A /= nrep[:, None, None]
+    Ya = np.lib.format.open_memmap(os.path.join(out, f'{tag}_training_imgavg.npy'), mode='w+', dtype=c['store_dtype'], shape=A.shape)
+    Ya[:] = A; Ya.flush(); del Ya, A; mem['imgavg'] = peak_gb()
+    np.savez(os.path.join(out, f'{tag}_training_events.npz'), code=code, sample=E['sample'], rep=rep, order=order, imgavg_code=ucode, imgavg_nrep=nrep)
     np.savez(os.path.join(out, f'{tag}_mvnn.npz'), sigma=S, W=W, ch_names=np.array(E['ch_names']), times=E['times'])
     xy, fit = positions(E['ch_names']); pp = os.path.join(ROOT, c['cache_dir'], 'positions.npy'); cj = os.path.join(ROOT, c['cache_dir'], 'channels.json')
     if os.path.exists(pp):
