@@ -76,7 +76,8 @@ class GPUSet:
     """inputs of several subjects on the GPU (float16) with their subject-layer index, code and target row"""
     def __init__(self, blocks, positions, dev):
         """blocks: list of (subject_layer_index, codes, X float16 [n, C, T])"""
-        self.X = torch.cat([torch.from_numpy(np.ascontiguousarray(X)) for _, _, X in blocks]).to(dev)
+        N = sum(len(c) for _, c, _ in blocks); self.X = torch.empty((N,) + blocks[0][2].shape[1:], dtype=torch.float16, device=dev); a = 0
+        for _, c, X in blocks: self.X[a:a + len(c)] = torch.from_numpy(np.ascontiguousarray(X, np.float16)).to(dev); a += len(c)   # no host-side concatenated copy
         self.subj = torch.cat([torch.full((len(c),), i, dtype=torch.long) for i, c, _ in blocks]).to(dev)
         self.code = torch.cat([torch.from_numpy(np.asarray(c, np.int64)) for _, c, _ in blocks]).to(dev)
         self.pos = torch.as_tensor(positions, dtype=torch.float32, device=dev); self.dev = dev
