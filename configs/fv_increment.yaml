@@ -1,0 +1,47 @@
+# F-VI (D-114 sections 2-3, db3c843; amendments 1 0736f9c, 2 5af193e, 3 8373346, 4 ef1778d): EEG name information over the
+# low-level image descriptors, hypotheses I1 (base L*) and I2 (base L_classic), Holm. scripts/fv_increment.py --stage dev (w choice) -> sim (information zero and MDE, no test EEG) -> test (once).
+# Server CPU only.
+verdict_config: configs/fv_verdict.yaml       # subjects, v1/v2 manifests (out_dir), final seeds, single conditions
+train_config: configs/fv_train.yaml           # meta, names_text, names_table, dev salt / n, out_root of the dev runs
+smoke: false                                  # true only in a code-check override: every EEG array is replaced by Gaussian rows
+lowlevel:                                     # eeg-a4 (D-114 section 1, amendment 1): L candidates, EEG-free choice of L*
+  predictor_json: results/fv/lowlevel_predictor.json   # "chosen", "mix_weights" {candidate: weight}, "pred_file" {path, sha256}
+  candidates: [L_blur, L_phase, L_all, L_classic]      # embedding candidates in pred_file; L_mix = weighted sum of their row-standardised scores
+  n_train_rows: 16540                         # pred rows 0-16539 = training codes, 16540-16739 = test codes (data/cache/fv_clip/index.json)
+  scores_file:                                # eeg-a4 score matrices (33499bf): cross-check of the L score rows built here (<cand>|dev, |dev_first, |test)
+    path: data/cache/fv_clip/lowlevel_scores.npz
+    sha256: b0ac0564d3d6537571293821fefc42e7537c1976f024db66c9cc00519c6c7c06
+  clip_img: data/cache/fv_clip/clip_img.npy   # original-image CLIP, signal of the planted-signal MDE only (never an L input)
+dev:                                          # section 2: development rows for the w choice
+  candidate: bm
+  seeds: [20261801, 20261802]
+  shuffle_seed: 20261801                      # label-shuffle development output, information-zero case (ii)
+  set: A_ses4
+  cond: ses123
+  targets: [1, 2, 3, 4, 5, 9]
+  images_per_concept: 10
+w_grid: [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]
+hypotheses:                                   # amendment 3: base predictor, point threshold; amendment 4: second low-level predictor
+  I1: {base: Lstar, min_point: 0.005, second: auto}     # auto: the non-L* candidate raising the EEG-free development MRP most (amendment 1)
+  I2: {base: L_classic, min_point: 0.01, second: L_phase}
+holm_alphas: [0.025, 0.05]                    # smallest p first; a closed hypothesis (w = 0) keeps p = 1 in the family
+test:
+  v2_dir: results/runs/2026-10-17_fv_verdict_v2
+  cond: ses123                                # I1, J1, J1b
+  report_conds: [k0]                          # report only (avg20); single trials: verdict single_conditions
+rules:
+  alpha: 0.05                                 # unadjusted pass (information-zero stop rule, reported): p <= alpha
+  lower_pct: 5                                # pigeonhole 5th percentile, reported
+  control_ratio: 0.1                          # J1, J1b rule N (D-112 amendment 5): (a) 5th percentile <= 0, (b) delta_c <= ratio x delta
+  control_lower_pct: 5
+  sim_stop_rate: 0.05                         # per hypothesis (amendment 4): case (i) unadjusted joint I & J1 & J1b rate above this, or a case (ii) joint pass -> stop
+  mde_power: 0.80                             # planted-signal MDE per hypothesis: Holm adoption rate 80%; m80 = z-alone test MRP there
+seeds:
+  boot: 20262011                              # crossed subject x concept pigeonhole (test): one index set for every statistic and both hypotheses
+  sim: 20262021                               # information-zero cases and MDE; sub-streams [sim, case] / [sim, 4, draw]
+n_boot: 1000
+n_sim: 1000                                   # case (i) draws
+n_mde: 200                                    # planted-signal draws per amplitude (common random numbers across amplitudes)
+mde_bisect: 12                                # bisection steps on the amplitude a
+z_dim: 1024
+out_dir: results/fv_increment

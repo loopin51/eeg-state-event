@@ -2,7 +2,7 @@
 pipeline as scripts/t1_tts_render.py, configs/t1_tts.yaml). Display-only post-processing; never part of a verdict.
 Runs in env_tts on CPU. Prints one JSON line (wav path, sha256, duration, voice, model sha256).
 
-usage: env_tts/bin/python scripts/fv_say.py configs/t1_tts.yaml --text 'I see a dog.' --out out.wav [--voice af_heart]
+usage: env_tts/bin/python scripts/fv_say.py configs/t1_tts.yaml --text 'I see: dog.' --out out.wav [--voice af_heart]
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):

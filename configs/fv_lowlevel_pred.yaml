@@ -1,0 +1,32 @@
+# D-114 section 1: low-level predictor L (no EEG). scripts/fv_lowlevel_pred.py (server gpuq CPU job).
+# Candidates: L_blur / L_phase = the blurred / phase-randomised image CLIP embedding as is; L_all = ridge from every feature block
+# below (each column standardised on the ridge training images, concatenated) to the original image CLIP embedding (clip_img, target
+# only, never a feature); L_classic = L_all without the two CLIP blocks. Predictions are L2-normalised. L_mix (D-114 amendment 1)
+# = weighted sum of the four candidates' row-standardised name scores.
+eegfree_config: configs/fv_eegfree.yaml       # embed_out (data/cache/fv_clip arrays, index.json row order), ridge.alphas, ridge.folds
+train_config: configs/fv_train.yaml           # meta, dev concepts (salt FV-dev, n 200), names table, names_text (P1)
+fold_salt: 20262001                           # concept-level 5-fold CV for the ridge penalty: sha256("{folder}|20262001") order, i % 5
+features:                                     # <embed_out>/<file> (.npy) or lowlevel.npz key
+  clip_blur: clip_img_blur.npy                # 1,024
+  clip_phase: clip_img_phase.npy              # 1,024
+  alex_conv1: alex_conv1.npy                  # 64, channel-wise spatial mean
+  alex_conv2: alex_conv2.npy                  # 192
+  m1_thumb: lowlevel.npz                      # 192, CIELAB 8 x 8 thumbnail
+  m2_hist: lowlevel.npz                       # 64, CIELAB histogram
+  m3_lum: lowlevel.npz                        # 2, L* mean and sd
+  m4_gabor: lowlevel.npz                      # 20, Gabor energy
+  a4_edge: lowlevel.npz                       # 17, edge density
+target: clip_img.npy                          # original image CLIP embedding (ridge target only)
+candidates:
+  L_blur: {as_is: clip_blur}
+  L_phase: {as_is: clip_phase}
+  L_all: {ridge: [clip_blur, clip_phase, alex_conv1, alex_conv2, m1_thumb, m2_hist, m3_lum, m4_gabor, a4_edge]}
+  L_classic: {ridge: [alex_conv1, alex_conv2, m1_thumb, m2_hist, m3_lum, m4_gabor, a4_edge]}
+  L_mix: {mix: [L_blur, L_phase, L_all, L_classic], step: 0.1}   # D-114 amendment 1: weights summing to 1 on a 0.1 grid, best development MRP of
+                                              # the weighted row-standardised scores (ties: first in lexicographic weight order)
+select:                                       # L*: highest development MRP (200 development concepts, 10-image prediction mean, 200 P1 names)
+  tie_order: [L_mix, L_all]                   # D-114 amendment 1: the first of these within `margin` of the best is chosen (tie: difference < 0.002)
+  margin: 0.002
+out_json: results/fv/lowlevel_predictor.json  # committed summary (sha256 of every prediction array)
+out_scores: lowlevel_scores.npz              # in <embed_out>: [200, 200] name score matrices per candidate (dev, dev_first, test), not committed
+out_npz: lowlevel_pred.npz                    # in <embed_out>, keys = candidate names, [16740, 1024] float32 L2-normalised, index.json row order, not committed

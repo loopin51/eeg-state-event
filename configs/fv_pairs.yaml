@@ -1,0 +1,21 @@
+# D-115 section 1: blur-level pairs (no EEG). scripts/fv_pairs.py (server gpuq CPU job).
+# Space: original image CLIP embedding C minus the mean over the 14,540 non-development training images, L2-normalised.
+# Low-level predictor set P (D-114 section 1 file): blurred (sigma 8) image CLIP, L_all and L_classic predictions, each minus the
+# same mean and normalised. For each development image i: sibling s (the 9 other images of its concept) x foil f (the 1,990
+# images of the other 199 development concepts); valid when every p in P gives cos(P(i), C(f)) - cos(P(i), C(s)) > 0; the pair is
+# the valid (s, f) with the largest minimum margin over P (ties: smaller sibling image row, then smaller foil image row).
+eegfree_config: configs/fv_eegfree.yaml       # embed_out (data/cache/fv_clip: index.json row order, clip_img, clip_img_blur)
+train_config: configs/fv_train.yaml           # meta, dev concepts (salt FV-dev, n 200)
+space: clip_img.npy
+predictors:                                   # name: <embed_out>/<file> or <file>:<key> (npz)
+  blur8: clip_img_blur.npy
+  L_all: lowlevel_pred.npz:L_all
+  L_classic: lowlevel_pred.npz:L_classic
+lowlevel_summary: results/fv/lowlevel_predictor.json   # pred_file sha256 is checked before use
+min_concepts: 100                             # D-115 1: fewer concepts or images with a valid pair -> close without EEG
+min_images: 400
+blur4: null                                   # report only: fv_embed_blur.py run folder (clip_img_blur4.npy [2000, 1024] and rows.json, rows =
+                                              # development images in index.json order, checked); null -> not computed
+blur_embed:                                   # scripts/fv_embed_blur.py (k3s RTX 5080, data group fv_embed); 8 = fv_eegfree.yaml audit sigma, a
+  sigmas_px: [4, 8]                           # check against the existing clip_img_blur rows
+out: results/fv_pairs/pairs.json

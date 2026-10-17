@@ -1,0 +1,7 @@
+# k3s override for fv_verdict.py --stage v2 (D-112 section 6): pass with --config-override configs/fv_verdict_k3s.yaml.
+# Not in the V2 public snapshot 2e2a6dc; the k3s data group fvverdict copies this file into the job (same path).
+# In a k3s job results/runs is the job's own RUN_DIR, so the 40 final run folders are read in place from the shared volume,
+# where each final job wrote its folder into /shared/runs/loopin51/<k8s job name>/ (configs/k3s.yaml shared.runs).
+# Each pattern matches exactly one folder: the job directories hold one run folder each; attempt_<n>/ copies sit one level deeper.
+final:
+  runs_glob: /shared/runs/loopin51/ese-fv-final-*/*_fv_final_{cand}_s{seed}_t{tt}{suffix}

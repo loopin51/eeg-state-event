@@ -9,7 +9,7 @@ Input  : --eeg  .npy (np.load with allow_pickle=False), whitened epochs in the F
 Output : JSON (stdout or --out) with
          (a) test200: top-5 of the 200 test concept names (configs/fv_names.tsv split == test) with cosine scores,
          (b) all1854: top-5 over all 1,854 THINGS names, and whether that top-1 is a training concept,
-         (c) sentence: 'I see a/an {display_name}.' for the test200 top-1 (fixed template with an a/an spelling rule, display only),
+         (c) sentence: 'I see: {display_name}.' for the test200 top-1 (fixed article-free template, display only),
          (d) with --tts out.wav: Kokoro-82M 0.9.4 rendering of the sentence (scripts/fv_say.py in env_tts, configs/t1_tts.yaml).
 Scores : estimates of every seed L2-normalised, averaged, normalised again; cosine to L2-normalised name embeddings; no
          temperature (same as the F-V verdict, ese.things.models.scores).
@@ -30,11 +30,10 @@ P = lambda p: p if os.path.isabs(p) else os.path.join(ROOT, p)
 
 
 def sentence(name):
-    """display sentence 'I see a/an {display_name}.' (D-111 decision 1, display only, never part of a verdict).
-    Article rule (coordination session 2026-10-17): 'an' when the display name starts with a, e, i, o or u (case-insensitive),
-    otherwise 'a'. Spelling only: exceptions by sound (hour, honest, unicorn, one, ...) and uncountable or plural names are left
-    as the rule gives them."""
-    return 'I see %s %s.' % ('an' if name[:1].lower() in 'aeiou' else 'a', name)
+    """display sentence 'I see: {display_name}.' (D-111 decision 1, display only, never part of a verdict).
+    Article-free template (coordination session 2026-10-17, replaces the a/an spelling rule of 741fb68): THINGS names include
+    plural and uncountable nouns (tongs, scissors, ...), and a rule that tells them apart from the name alone is error-prone."""
+    return 'I see: %s.' % name
 
 
 def sha256(path):

@@ -57,13 +57,13 @@ def run(args, ok=True):
 
 report = {}
 sys.path.insert(0, os.path.join(ROOT, 'scripts')); from fv_decode import sentence
-report['article_rule'] = {n: sentence(n) for n in ('ostrich', 'dog', 'Umbrella', 'egg', 'hour', 'unicorn')}
-assert report['article_rule']['ostrich'] == 'I see an ostrich.' and report['article_rule']['dog'] == 'I see a dog.'
+report['sentence_template'] = {n: sentence(n) for n in ('ostrich', 'dog', 'tongs', 'scissors')}
+assert report['sentence_template'] == {n: f'I see: {n}.' for n in ('ostrich', 'dog', 'tongs', 'scissors')}
 # 1. two bm seeds, calibrated layer, stack of 20 repetitions
 r1 = run(['--runs', *runs_bm, '--subject', '1', '--eeg', xf, '--layer', 'ses123', '--names-file', nf, '--out', os.path.join(out, 'decode_bm.json')])
 assert len(r1['test200']) == 5 and all(t['split'] == 'test' for t in r1['test200']) and len(r1['all1854']) == 5
 assert r1['n_seeds'] == 2 and r1['n_repetitions_averaged'] == 20 and r1['cross_fitted'] is True
-nm = r1['test200'][0]['display_name']; assert r1['sentence'] == 'I see %s %s.' % ('an' if nm[0].lower() in 'aeiou' else 'a', nm)
+nm = r1['test200'][0]['display_name']; assert r1['sentence'] == f'I see: {nm}.'
 sc = [t['score'] for t in r1['test200']]; assert sc == sorted(sc, reverse=True)
 assert r1['all1854_top1_is_training_concept'] == (r1['all1854'][0]['split'] == 'train')
 # independent forward pass: same seed averaging and cosine
