@@ -11,7 +11,14 @@ embeddings are averaged over seeds, L2-normalised and scored again against the 2
   D (iii): Gaussian input of the chosen candidate: 90% pigeonhole upper bound of MRP < 0.51.
 Pigeonhole: targets x concepts with replacement (each target's concept draws inside its own concepts), n_boot draws.
 
+Re-verdict (D-112 amendment 5, 6b92935): --targets T ... replaces dev.dev_targets, --candidate C fixes the candidate (no
+choice; only C's runs are read), --rule-n switches to rule N: (i) and (iii) use the exact concept-permutation null mean
+(ese.things.verdict.null_mean_exact; the n_perm draws are still reported), (iii) passes when the pigeonhole 5th percentile of
+the noise-input excess E_c <= 0 and E_c <= control_ratio x E_dec (E_dec = the (i) excess of the same targets; control_ratio and
+control_lower_pct from --verdict-config rules). (ii) is unchanged. Without these options the behaviour is that of 1e948dd.
+
 usage: python scripts/fv_dev_gate.py configs/fv_train.yaml [--set A_ses4] [--choose-only] [--out results/fv/dev_gate.json]
+           [--targets 2 3 4] [--candidate bm] [--rule-n] [--verdict-config configs/fv_verdict.yaml]
        --choose-only: the candidate choice only (written to results/fv/dev_choice_<set>.json, printed: the chosen name)
 """
 import os
@@ -51,22 +58,26 @@ def pigeonhole(vals, n_boot, rng):
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--set', default='A_ses4'); ap.add_argument('--out'); ap.add_argument('--choose-only', action='store_true'); a = ap.parse_args()
-    c = yaml.safe_load(open(P(a.config))); g = c['gate_d']; targets = c['dev']['dev_targets']
+    ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--set', default='A_ses4'); ap.add_argument('--out'); ap.add_argument('--choose-only', action='store_true')
+    ap.add_argument('--targets', type=int, nargs='+'); ap.add_argument('--candidate', choices=['bm', 'nice']); ap.add_argument('--rule-n', action='store_true')
+    ap.add_argument('--verdict-config', default='configs/fv_verdict.yaml'); a = ap.parse_args()
+    c = yaml.safe_load(open(P(a.config))); g = c['gate_d']; targets = a.targets or c['dev']['dev_targets']
+    assert not (a.candidate and a.choose_only), '--candidate fixes the candidate; --choose-only makes the choice'
     sys.path.insert(0, os.path.join(ROOT, 'src')); sys.path.insert(0, os.path.join(ROOT, 'scripts'))
     from ese.things.data import Meta
+    from ese.things import verdict as V
     from fv_train import name_rows
     meta = Meta(P(c['meta'])); dev_c = meta.dev_concepts(c['dev']['salt'], c['dev']['n'])
     cand_emb = np.load(os.path.join(P(c['targets']['dir']), c['targets']['names_text']))[name_rows(c, meta, dev_c)]
-    res = dict(set=a.set, targets=targets, candidates={})
-    for cand in ('bm', 'nice'):
+    res = dict(set=a.set, targets=targets, candidates={}, rule_n=bool(a.rule_n), candidate_fixed=a.candidate)
+    for cand in ((a.candidate,) if a.candidate else ('bm', 'nice')):
         try: v = [cells(c, cand, t, False, a.set, 'ses123', cand_emb) for t in targets]
         except AssertionError as e: res['candidates'][cand] = dict(missing=str(e)); continue
         allv = np.concatenate([x[0] for x in v]); res['candidates'][cand] = dict(mrp=float(allv.mean()), per_target={str(t): float(x[0].mean()) for t, x in zip(targets, v)},
                                                                                  n_concepts={str(t): int(len(x[0])) for t, x in zip(targets, v)}, runs=[x[3] for x in v])
     ok = {k: v['mrp'] for k, v in res['candidates'].items() if 'mrp' in v}; assert ok, 'no candidate has dev runs'
     assert len(ok) == 2 or not a.choose_only, f'candidate choice needs both candidates ({sorted(ok)} present)'
-    chosen = 'bm' if ('bm' in ok and (len(ok) == 1 or ok['bm'] >= max(ok.values()) - g['tie'])) else max(ok, key=ok.get); res['chosen'] = chosen
+    chosen = a.candidate if a.candidate else 'bm' if ('bm' in ok and (len(ok) == 1 or ok['bm'] >= max(ok.values()) - g['tie'])) else max(ok, key=ok.get); res['chosen'] = chosen
     if a.choose_only:                                                           # before the label-shuffle runs exist: the choice only, values kept in the file
         out = P(os.path.join(g['out_dir'], f'dev_choice_{a.set}.json')); os.makedirs(os.path.dirname(out), exist_ok=True); json.dump(res, open(out, 'w'), indent=1)
         print(json.dumps({'chosen': chosen, 'out': os.path.relpath(out, ROOT)}), flush=True); return
@@ -74,15 +85,25 @@ def main():
     obs = float(np.concatenate([x[0] for x in v]).mean()); null = np.empty(g['n_perm'])
     for b in range(g['n_perm']):
         null[b] = np.mean(np.concatenate([mrp_of(S, true[rng.permutation(len(true))]) for _, S, true, _ in v]))
-    exc = obs - null.mean(); res['D_i'] = dict(mrp=obs, null_mean=float(null.mean()), null_p95=float(np.percentile(null, 95)), excess=float(exc),
-                                                excess_over_p95=float(obs - np.percentile(null, 95)), threshold=g['excess_min'], passed=bool(exc >= g['excess_min']))
+    nm = null.mean()
+    if a.rule_n:                                                                # exact expectation (amendment 5), pooled with each target's concept count
+        nex = [V.null_mean_exact(S, true) for _, S, true, _ in v]; nm = float(np.average(nex, weights=[len(x[2]) for x in v]))
+    exc = obs - nm; res['D_i'] = dict(mrp=obs, null_mean=float(nm), null_mean_draws=float(null.mean()), null_p95=float(np.percentile(null, 95)), excess=float(exc),
+                                       excess_over_p95=float(obs - np.percentile(null, 95)), threshold=g['excess_min'], passed=bool(exc >= g['excess_min']))
+    if a.rule_n: res['D_i']['null_mean_exact_per_target'] = {str(t): x for t, x in zip(targets, nex)}
     rb = np.random.default_rng(g['boot_seed'])
     try:
         sv = [cells(c, chosen, t, True, a.set, 'ses123', cand_emb)[0] for t in targets]; bs = pigeonhole(sv, g['n_boot'], rb); lo, hi = np.percentile(bs, [5, 95])
         res['D_ii'] = dict(mrp=float(np.concatenate(sv).mean()), ci90=[float(lo), float(hi)], passed=bool(lo <= 0.5 <= hi))
     except AssertionError as e: res['D_ii'] = dict(missing=str(e), passed=None)
-    nv = [cells(c, chosen, t, False, a.set, 'ses123_noise', cand_emb)[0] for t in targets]; bn = pigeonhole(nv, g['n_boot'], rb); lo, hi = np.percentile(bn, [5, 95])
-    res['D_iii'] = dict(mrp=float(np.concatenate(nv).mean()), ci90=[float(lo), float(hi)], threshold_upper=g['noise_upper'], passed=bool(hi < g['noise_upper']))
+    if a.rule_n:                                                                # (iii) rule N on the noise-input excess cells
+        rl = yaml.safe_load(open(P(a.verdict_config)))['rules']; nv = [cells(c, chosen, t, False, a.set, 'ses123_noise', cand_emb) for t in targets]
+        xv = [cl - V.null_mean_exact(S, true) for cl, S, true, _ in nv]; bx = pigeonhole(xv, g['n_boot'], rb)
+        res['D_iii'] = dict(V.control_rule(np.concatenate(xv), bx, exc, rl['control_ratio'], rl['control_lower_pct']), mrp=float(np.concatenate([x[0] for x in nv]).mean()),
+                            rule='N (D-112 amendment 5)')
+    else:
+        nv = [cells(c, chosen, t, False, a.set, 'ses123_noise', cand_emb)[0] for t in targets]; bn = pigeonhole(nv, g['n_boot'], rb); lo, hi = np.percentile(bn, [5, 95])
+        res['D_iii'] = dict(mrp=float(np.concatenate(nv).mean()), ci90=[float(lo), float(hi)], threshold_upper=g['noise_upper'], passed=bool(hi < g['noise_upper']))
     res['gate_D'] = None if res['D_ii']['passed'] is None else bool(res['D_i']['passed'] and res['D_ii']['passed'] and res['D_iii']['passed'])
     out = P(a.out or os.path.join(c['gate_d']['out_dir'], f'dev_gate_{a.set}.json')); os.makedirs(os.path.dirname(out), exist_ok=True); json.dump(res, open(out, 'w'), indent=1)
     print(json.dumps({k: res[k] for k in ('chosen', 'gate_D')}), flush=True)

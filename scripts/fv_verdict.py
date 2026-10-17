@@ -15,7 +15,9 @@
                 (seeds x targets and the label-shuffle runs) and saves predicted embeddings (results/runs/<date>_fv_verdict_v2/
                 z_emb_tXX.npz + v2_manifest.json). No cosine, MRP or top-k is computed or printed.
   --stage v3  : server CPU. Checks both manifests, then computes H1 -> H3 -> H4 (fixed sequence, H2 not tested: amendment 1),
-                the premises 1-5 and the report-only items in one run: out_dir/verdict.json.
+                the premises 1-5 and the report-only items in one run: out_dir/verdict.json. Premises 2-4 follow rule N (D-112
+                amendment 5): control excess E_c = cells minus the exact concept-permutation null mean (verdict.null_mean_exact),
+                pass = pigeonhole 5th percentile of E_c <= 0 and E_c <= control_ratio x E_dec (H1 decoder excess, ses123 avg20).
 Cells: subject x test concept, rank percentile of the true name among the 200 test names (cosine of L2-normalised vectors).
 Decoder embeddings are seed means (mean of L2-normalised seed outputs).
 
@@ -195,14 +197,18 @@ def stage_v3(c, tc, meta, a):
     best = max(('de', 'time'), key=lambda k: M[('ridge', k, 'avg20')].mean()); D1 = M[('dec', 'ses123', 'avg20')] - M[('ridge', best, 'avg20')]
     p1 = dict(baseline=best, baseline_mrp=float(M[('ridge', best, 'avg20')].mean()), other_mrp=float(M[('ridge', 'time' if best == 'de' else 'de', 'avg20')].mean()), diff=float(D1.mean()),
               lower90=float(np.percentile(boot(D1), rl['premise_lower_pct']))); p1['passed'] = p1['lower90'] > 0
-    phase_null = {}
-    for i, s in enumerate(subs):
-        Zs = np.load(os.path.join(d2, f'z_emb_t{s:02d}.npz')); Sp = V.seed_mean([Zs[f'seed{j}|ses123|phase'] for j in range(nseed)]) @ Tn.T
-        phase_null[s] = V.perm_null(Sp, true, c['n_perm'], np.random.default_rng([c['seeds']['perm'], s, 1])).mean()   # stream [perm, s, 1] for the phase input
-    Xp = M[('dec', 'ses123', 'phase')] - np.array([phase_null[s] for s in subs])[:, None]
-    p2 = dict(excess=float(Xp.mean()), upper90=float(np.percentile(boot(Xp), rl['premise_upper_pct']))); p2['passed'] = p2['upper90'] < rl['phase_excess_max']
-    p3 = dict(mrp=float(M[('ridge', 'eye', 'avg20')].mean()), upper90=float(np.percentile(boot(M[('ridge', 'eye', 'avg20')]), rl['premise_upper_pct']))); p3['passed'] = p3['upper90'] < rl['meter_upper_max']
-    p4 = dict(mrp=float(M[('ridge', 'pre', 'avg20')].mean()), upper90=float(np.percentile(boot(M[('ridge', 'pre', 'avg20')]), rl['premise_upper_pct']))); p4['passed'] = p4['upper90'] < rl['meter_upper_max']
+    # premises 2-4: rule N (D-112 amendment 5): control excess = cells minus the exact permutation-null mean of that subject's
+    # score matrix; E_dec = H1 decoder excess (ses123, avg20) on the same subjects x concepts
+    e_dec = float(np.mean([M[('dec', 'ses123', 'avg20')][i].mean() - V.null_mean_exact(S_dec[(s, 'ses123')], true) for i, s in enumerate(subs)]))
+    Sp = {}
+    for s in subs:
+        Zs = np.load(os.path.join(d2, f'z_emb_t{s:02d}.npz')); Sp[s] = V.seed_mean([Zs[f'seed{j}|ses123|phase'] for j in range(nseed)]) @ Tn.T
+    Xp = M[('dec', 'ses123', 'phase')] - np.array([V.null_mean_exact(Sp[s], true) for s in subs])[:, None]
+    Xe = M[('ridge', 'eye', 'avg20')] - np.array([V.null_mean_exact(R[f'eye_t{s:02d}'], true) for s in subs])[:, None]
+    Xr = M[('ridge', 'pre', 'avg20')] - np.array([V.null_mean_exact(R[f'pre_t{s:02d}'], true) for s in subs])[:, None]
+    ctl = lambda X: V.control_rule(X, boot(X), e_dec, rl['control_ratio'], rl['control_lower_pct'])
+    p2 = dict(ctl(Xp), mrp=float(M[('dec', 'ses123', 'phase')].mean())); p3 = dict(ctl(Xe), mrp=float(M[('ridge', 'eye', 'avg20')].mean()))
+    p4 = dict(ctl(Xr), mrp=float(M[('ridge', 'pre', 'avg20')].mean()))
     ex = {str(s): bool(M[('dec', 'ses123', 'avg20')][i].mean() > np.percentile(nullm[s], 95)) for i, s in enumerate(subs)}
     p5 = dict(exceed=ex, n_exceed=int(sum(ex.values())), passed=bool(sum(ex.values()) >= rl['prevalence_min']))
     res['premises'] = {'1_vs_ridge': p1, '2_phase': p2, '3_eye': p3, '4_pre': p4, '5_prevalence': p5}; gate = p2['passed'] and p3['passed'] and p4['passed'] and p5['passed']

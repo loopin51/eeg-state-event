@@ -34,7 +34,9 @@ rules:
   h4_min: 0.02
   premise_upper_pct: 95
   premise_lower_pct: 5
-  phase_excess_max: 0.01
-  meter_upper_max: 0.52
+  phase_excess_max: 0.01                     # superseded by rule N (D-112 amendment 5, 6b92935); kept for the record (read only by the 455d6c1 design check)
+  meter_upper_max: 0.52                      # superseded by rule N (D-112 amendment 5); kept for the record (455d6c1 design check)
+  control_ratio: 0.1                         # rule N (amendment 5) for premises 2-4 and gate D (iii): E_c <= ratio x E_dec
+  control_lower_pct: 5                       # rule N (a): pigeonhole 5th percentile of E_c <= 0
   prevalence_min: 7
 mde_power_z: [1.6448536, 0.8416212]          # one-sided alpha 0.05, power 0.80
