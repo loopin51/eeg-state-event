@@ -1,0 +1,78 @@
+# F-VIII (D-117 and amendments 1-5): EEG-grounded language outputs and central-object error rates.
+# Vocabulary rules and the central-object judge: src/ese/things/lang.py. Fixed before the sentence pool is generated.
+names_table: configs/fv_names.tsv
+things_meta: data/raw/things_meta/concepts-metadata_things.tsv   # GitHub copy niranjanrajesh02/eeg_semantic, sha256 below
+things_meta_sha256: 3f05b6b748d1e1b685e15130d2487bff63f86e1f4da94a2a5d9e7dec073a48eb                   # = results/fv/names_report.json meta_sha256
+parser:
+  spacy: 3.8.16
+  model: en_core_web_lg-3.8.0
+  model_wheel_sha256: 293e9547a655b25499198ab15a525b05b9407a75f10255e405e8c3854329ab63
+pool:                                   # D-117 amendments 3-4 (+5: parameters the model does not accept)
+  out_dir: results/fv_lang/pool
+  endpoint: https://openrouter.ai/api/v1/chat/completions
+  model: anthropic/claude-haiku-5.5     # canonical slug anthropic/claude-haiku-5.5-20261007 (OpenRouter model list, 2026-10-18)
+  expected_canonical: anthropic/claude-haiku-5.5-20261007
+  provider: {order: [anthropic], allow_fallbacks: false}
+  max_tokens: 400
+  # temperature / top_p / seed: not in the model's supported parameters on any provider (OpenRouter endpoints list,
+  # 2026-10-18); not sent, the provider default applies (amendment 5)
+  n_sentences: 5
+  retries: 3                            # extra requests after the first when fewer than 5 sentences pass the format check
+  fallback: "A photo of a {name}."
+  threads: 8
+  cost_cap_usd: 3.0                     # stop before the next request once the summed reported cost reaches this
+  key_env: OPENROUTER_API_KEY           # or a file named by OPENROUTER_KEY_FILE (default ~/.config/ese/openrouter_key); never logged
+  system: "You write short, literal captions of photographs for a vision research dataset."
+  user: |-
+    Concept: {name}
+    Meaning: {definition}
+
+    Write {n} different one-sentence descriptions of a photograph whose main subject is this {name}. Rules:
+    - Start each sentence with the main subject and name it with the word "{name}".
+    - Describe only what could be visible in the photo: appearance, colour, material, shape, viewpoint, lighting, setting.
+    - Do not name any other specific object, animal, food, plant or person. Describe the surroundings with general words (for example "a plain background", "indoors", "outdoors", "on a surface").
+    - At most 25 words per sentence. The {n} sentences must differ from each other.
+    Return JSON only: {{"sentences": ["...", "...", "...", "...", "..."]}}
+clip:                                   # same encoder as F-V targets (configs/fv_eegfree.yaml)
+  arch: ViT-H-14
+  weights: data/raw/openclip_vith14/open_clip_model.safetensors
+  weights_sha256: 0084e75319a50ad85ef45377bad5bc38f2f58824459eb690048d51c9f8863be5
+  batch: 256
+  context: 77                           # OpenCLIP context length (start and end tokens included)
+test_image: data/cache/things_eeg2/clip_vith14/test_image.npy        # [200, 1024] L2-normalised, rows = test codes 1..200 (M3 candidates)
+names_text: data/cache/things_eeg2/clip_vith14/names_text_P1.npy     # [1854, 1024], rows = names table rows (planted-signal calibration)
+z:                                      # F-V V2 predicted embeddings (scripts/fv_verdict.py --stage v2), read in place
+  dirs: [/shared/runs/loopin51/ese-fv-verdict-v2/2026-10-17_fv_verdict_v2, results/runs/2026-10-17_fv_verdict_v2]
+  n_seeds: 3
+subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+pool_text:                              # fv_lang_embed.py output, read in place (k3s) or after fetching (server)
+  dirs: [/shared/runs/loopin51/ese-fv-lang-embed/2026-10-18_fv_lang_embed, results/runs/2026-10-18_fv_lang_embed]
+sim:                                    # information-zero and planted-signal inputs (amendment 5)
+  seed: 20261872
+  planted_target_mrp: 0.77              # decoder level: 200-test-name MRP of the planted vectors (bisection on the noise scale)
+b:                                      # method B (amendment 5)
+  llm: data/raw/qwen3_4b_instruct_2507  # Qwen/Qwen3-4B-Instruct-2507 @ cdbee75f17c01a7cc42f958dc650907174af0554
+  llm_sha256: {model-00001-of-00003.safetensors: 75311d91bb08cf0b882913da464a1e722a31fb44db35208663487efb7a3d8ed6,
+               model-00002-of-00003.safetensors: 0b48adbb1f60e901153d91907ba11ce63bd4b8b584482e730f48808d055dfba1,
+               model-00003-of-00003.safetensors: 7dd39ccca5e4de123c74c14af44c9bf2eb75df33b4614382af0134528e060d5d}
+  n_start: 20
+  n_keep: 5
+  n_new: 10
+  rounds: 10
+  sampling: {temperature: 0.7, top_p: 0.8, top_k: 20, max_tokens: 512}
+  vllm: {gpu_memory_utilization: 0.72, max_model_len: 4096, max_num_seqs: 256}
+  prompt: |-
+    Here are candidate one-sentence descriptions of a photograph:
+    {candidates}
+
+    Write {n} new one-sentence descriptions of a photograph. Each new sentence must either rewrite one candidate with different wording or details, or combine details from two candidates. Each sentence must have exactly one main object, named at the start of the sentence, and at most 25 words.
+    Return JSON only: {{"sentences": ["...", "..."]}}
+  parts:                                # row sets (one k3s job each); cond = arm|calibration|input kind
+    main: [dec|ses123|avg20]
+    shuffle: [shuf|ses123|avg20]
+    noise: [dec|ses123|noise]
+    phase: [dec|ses123|phase]
+    noeeg: [noeeg]
+    sim: [sim_gauss, sim_const, sim_planted]
+    seeds12: [dec|ses123|avg20@1, dec|ses123|avg20@2]
+    report: [dec|k0|avg20, dec|ses123|single1]

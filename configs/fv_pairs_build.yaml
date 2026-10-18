@@ -20,9 +20,9 @@ r_min: 0.6                                    # amendment 1 feasibility (1): C(i
 pair_seed: 20262132                           # main pairs: rng = default_rng(pair_seed); images in index order, one rng.integers(n_valid)
                                               # per image over its valid combinations in (sibling row, foil row) order
 center_out: data/cache/fv_pairs/center.npy    # the subtracted mean vector (float64 [1024]), sha256 in the json, not committed
-blur4: null                                   # report only: fv_embed_blur run folder (clip_img_blur4_dev.npy, rows.json dev_rows); null -> not computed
+blur4: results/runs/2026-10-18_fv_embed_blur   # report only: fv_embed_blur run folder (clip_img_blur4_dev.npy, rows.json dev_rows); null -> not computed
 holdout:                                      # amendment 1 held-out blur predictors (not used for pair selection), scripts/fv_holdout.py
-  features_dir: null                          # fv_embed_blur run folder on the server (alex_blur8_fc7 / conv5); null -> H_b and H_c are skipped
+  features_dir: results/runs/2026-10-18_fv_embed_blur   # fv_embed_blur run folder on the server (alex_blur8_fc7 / conv5); null -> H_b and H_c are skipped
   out: data/cache/fv_pairs/holdout_pred.npz   # keys H_a, H_b, H_c: [2000, 1024] float32 L2-normalised predictions of the centred C, development rows; key rows
   summary: results/fv_pairs/holdout.json      # CV tables, chosen penalties, sha256, development name MRP of each H
   fold_salt: 20262131                         # concept-level 5-fold CV over the 14,540 fit images: sha256("{folder}|20262131") order, i % 5

@@ -1,21 +1,47 @@
-# D-115 section 1: blur-level pairs (no EEG). scripts/fv_pairs.py (server gpuq CPU job).
-# Space: original image CLIP embedding C minus the mean over the 14,540 non-development training images, L2-normalised.
-# Low-level predictor set P (D-114 section 1 file): blurred (sigma 8) image CLIP, L_all and L_classic predictions, each minus the
-# same mean and normalised. For each development image i: sibling s (the 9 other images of its concept) x foil f (the 1,990
-# images of the other 199 development concepts); valid when every p in P gives cos(P(i), C(f)) - cos(P(i), C(s)) > 0; the pair is
-# the valid (s, f) with the largest minimum margin over P (ties: smaller sibling image row, then smaller foil image row).
-eegfree_config: configs/fv_eegfree.yaml       # embed_out (data/cache/fv_clip: index.json row order, clip_img, clip_img_blur)
-train_config: configs/fv_train.yaml           # meta, dev concepts (salt FV-dev, n 200)
-space: clip_img.npy
-predictors:                                   # name: <embed_out>/<file> or <file>:<key> (npz)
-  blur8: clip_img_blur.npy
-  L_all: lowlevel_pred.npz:L_all
-  L_classic: lowlevel_pred.npz:L_classic
-lowlevel_summary: results/fv/lowlevel_predictor.json   # pred_file sha256 is checked before use
-min_concepts: 100                             # D-115 1: fewer concepts or images with a valid pair -> close without EEG
-min_images: 400
-blur4: null                                   # report only: fv_embed_blur.py run folder (clip_img_blur4.npy [2000, 1024] and rows.json, rows =
-                                              # development images in index.json order, checked); null -> not computed
-blur_embed:                                   # scripts/fv_embed_blur.py (k3s RTX 5080, data group fv_embed); 8 = fv_eegfree.yaml audit sigma, a
-  sigmas_px: [4, 8]                           # check against the existing clip_img_blur rows
-out: results/fv_pairs/pairs.json
+# eeg-b1 verdict configuration; replaces the 08d0365 pair-construction configuration of this path (now configs/fv_pairs_build.yaml, eeg-a4).
+# F-VII (D-115 sections 2-3, a9d7685; amendments 1 6d6c5cb, 2 7cb51f6, 3 fdc27f2): blur-level information vs concept, pair test on the
+# development photos. scripts/fv_pairs.py --stage infer (EEG forward pass, server gpuq CPU) | gate (no EEG: feasibility gates
+# and simulations, committed before the verdict) | verdict (once).
+train_config: configs/fv_train.yaml           # meta, cache (prep_config), positions, names_text, dev salt / n, out_root of the dev runs
+smoke: false                                  # true only in a code-check override (synthetic inputs, never reported)
+pairs:                                        # eeg-a4 (section 1, amendments 1-2); i, s, f = fv_clip/index.json rows (training code - 1)
+  main: results/fv_pairs/pairs_main.json      # random valid pair per photo (seed 20262132), list under "pairs"
+  maxmargin: results/fv_pairs/pairs.json      # largest-margin pair per photo (report only), list under "pairs"
+  holdout: data/cache/fv_pairs/holdout_pred.npz   # H_a, H_b (comparison), H_c (blur simulation): float32 [2000, d] unit rows + "rows"; predictions of the centred C
+  clip_img: data/cache/fv_clip/clip_img.npy   # original-image CLIP (rows = codes - 1); C = unit(clip_img - centre)
+  n_train_rows: 16540
+dev_runs:                                     # development bm models (snapshot 11bf018, calibration cap 50; targets 6 7 8 10 trained for D-115)
+  candidate: bm
+  seeds: [20261801, 20261802]
+  shuffle_seed: 20261801
+  old_targets: [1, 2, 3, 4, 5, 9]
+  new_targets: [6, 7, 8, 10]
+  commit: 11bf018ca9ae5cd838633a31ea8e1be9fabfc78e
+infer:
+  sessions: [1, 2, 3, 4]                      # per development photo: mean over every repetition of the four sessions' training runs
+  layers: [ses123, k0]
+  noise_seed: 20262112                        # default_rng([noise_seed, subject]); Gaussian with the channel sd of the subject's photo inputs
+  device: cpu
+  batch: 256
+  out_dir: data/cache/fv_pairs/infer          # z_raw_tXX.npz (not committed); manifest -> out_dir below
+rules:
+  lower_pct: 5
+  k1_min: 0.02                                # K1: D = A_dec - max(0.5, A_Ha, A_Hb); pigeonhole 5th percentile > 0 and D >= +0.02
+  control_ratio: 0.1                          # J rule N (D-112 amendment 5) on A - 0.5: (a) 5th percentile <= 0, (b) A_c - 0.5 <= ratio x (A_dec - 0.5)
+  control_lower_pct: 5
+  gate_r_min: 0.6                             # (1) C(i) picks s on the main pairs
+  gate_min_concepts: 100                      # (2)
+  gate_min_photos: 400
+  target_mrp: 0.808                           # noise matching: z = signal + sigma g per photo; concept row = mean of its 10 photos; 200-way development MRP of the decoder alone (D-114 rows)
+  photo_noise_factor: 0.7071067811865476      # amendment 3 (fdc27f2): sqrt(2 / 4); the concept row is 10 photos x 2 repetitions, a pair input is one photo x 4 repetitions
+  gate_sim_d_min: 0.02                        # (3) C(i) signal: mean D >= +0.02
+  stop_rate: 0.05                             # (4) leave-one-out blur simulations, and information zero: K1 pass rate <= 5%
+seeds:
+  boot: 20262111                              # crossed subject x concept pigeonhole (verdict): one index set for every statistic
+  sim: 20262121                               # simulations; sub-streams [sim, case, draw]
+n_boot: 1000
+n_sim: 1000                                   # draws per simulation case
+n_calib: 20                                   # noise draws (common random numbers) for the sigma bisection
+calib_bisect: 40
+z_dim: 1024
+out_dir: results/fv_pairs
