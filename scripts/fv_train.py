@@ -63,7 +63,7 @@ def main():
     excl = set(dev_c) if a.mode == 'dev' else set(); train_c = [x for x in meta.train_concepts if x not in excl and x not in set(valid_c)]
     train_codes, valid_codes, dev_codes = meta.codes_of(train_c), meta.codes_of(valid_c), meta.codes_of(dev_c)
     trainers = [s for s in c['subjects'] if s != a.target]; ti = len(trainers)
-    o = dict(dict(max_epochs=c['optim']['max_epochs'], patience=c['optim']['patience']), **c['optim'][a.candidate])   # D-118 arms may set their own; cal = dict(c['calibration'])
+    o = dict(dict(max_epochs=c['optim']['max_epochs'], patience=c['optim']['patience']), **c['optim'][a.candidate]); cal = dict(c['calibration'])   # D-118 arms may set their own epochs
     max_updates = None
     if a.smoke:
         have = [s for s in trainers if all(os.path.exists(os.path.join(cache, f'sub-{s:02d}', f'ses-{e:02d}_training_imgavg.npy')) for e in c['sessions'])]
