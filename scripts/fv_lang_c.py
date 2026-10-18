@@ -39,7 +39,8 @@ def main():
     ap.add_argument('--stage', choices=['measure', 'train'], default='train'); ap.add_argument('--smoke', action='store_true')
     ap.add_argument('--grad-ckpt', action='store_true', help='measurement of the amendment-5 fallback (LLM gradient checkpointing)')
     a = ap.parse_args(); c = yaml.safe_load(open(P(a.config))); cc = c['c']
-    if a.grad_ckpt: cc['grad_checkpointing'] = True; t0 = time.time(); dev = 'cuda'
+    if a.grad_ckpt: cc['grad_checkpointing'] = True
+    t0 = time.time(); dev = 'cuda'
     tc = yaml.safe_load(open(P(cc['train_config']))); pc = yaml.safe_load(open(P(tc['prep_config']))); cache = P(pc['cache_dir'])
     torch.manual_seed(cc['seed']); rng = np.random.default_rng(cc['seed'])
     from transformers import AutoModelForCausalLM, AutoTokenizer
