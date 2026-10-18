@@ -92,6 +92,7 @@ c:                                      # method C (corrections 1-2, amendments 
   inputs_dir: data/cache/things_eeg2/verdict_inputs          # V1 test inputs (session 4), staged with the fvverdict group
   seed: 20261881
   batch: 32
+  micro_batches: 2                      # gradient accumulation within a batch of 32 (same gradient); t01-shuffle OOM 2026-10-19 (t01 peak 15.46 GB)
   lr_enc: 1.0e-4
   lr_proj: 1.0e-3
   weight_decay: 0.01

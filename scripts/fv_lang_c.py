@@ -19,7 +19,9 @@ subject, row, output, confidence), proj.pt + encoder.pt (git-ignored).
 
 usage: python scripts/fv_lang_c.py configs/fv_lang.yaml --target S [--shuffle] [--stage {measure,train}] [--smoke]
 """
-import os, sys, csv, glob, json, time, copy, argparse, yaml, numpy as np, torch, torch.nn as nn, torch.nn.functional as F
+import os
+os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')   # t01-shuffle OOM 2026-10-19: 631 MB reserved but unallocated at the failure
+import sys, csv, glob, json, time, copy, argparse, yaml, numpy as np, torch, torch.nn as nn, torch.nn.functional as F
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, os.path.join(ROOT, 'src')); sys.path.insert(0, os.path.join(ROOT, 'scripts'))
 P = lambda p: p if os.path.isabs(p) else os.path.join(ROOT, p)
 from ese.things.data import Meta, subject_mean, GPUSet
@@ -85,7 +87,21 @@ def main():
 
     def lm_loss(x, pos, subj, codes, pick):
         """mean answer-token NLL; pick(code) -> sentence"""
-        E = net(x, pos, subj).to(torch.bfloat16); B, nb, _ = E.shape; ans = [ids(pick(int(k))) for k in codes.tolist()]
+        ans = [ids(pick(int(k))) for k in codes.tolist()]; tot, n = lm_nll(net(x, pos, subj), ans); return tot / n
+
+    def lm_backward(x, pos, subj, codes, pick):
+        """lm_loss(...).backward() with the LLM part in cc['micro_batches'] chunks. The encoder runs once on the whole batch
+        (BatchNorm statistics of all 32 rows); each chunk adds d(NLL sum / all answer tokens)/dE to a detached copy of E, which is
+        then back-propagated through the encoder once, so the gradient equals that of the full batch. Sentences are picked for
+        the whole batch first (same rng order)."""
+        ans = [ids(pick(int(k))) for k in codes.tolist()]; n = sum(len(q) for q in ans); Ef = net(x, pos, subj); Ed = Ef.detach().requires_grad_(True); tot = 0.0
+        for c in np.array_split(np.arange(len(ans)), min(cc.get('micro_batches', 1), len(ans))):
+            t, _ = lm_nll(Ed[torch.as_tensor(c, device=Ed.device)], [ans[i] for i in c]); (t / n).backward(); tot += t.item()
+        Ef.backward(Ed.grad); return torch.tensor(tot / n)
+
+    def lm_nll(E, ans):
+        """(answer-token NLL sum, number of answer tokens); E = encoder tokens [B, n_bins, d_llm], ans = token ids per row"""
+        E = E.to(torch.bfloat16); B, nb, _ = E.shape
         L = len(pre_ids) + nb + len(post_ids) + max(len(q) for q in ans)
         inp = torch.full((B, L), tokz.pad_token_id or 0, dtype=torch.long, device=dev); lab = torch.full((B, L), -100, dtype=torch.long, device=dev)
         att = torch.zeros((B, L), dtype=torch.long, device=dev); a0 = len(pre_ids) + nb + len(post_ids)
@@ -94,7 +110,7 @@ def main():
             lab[i, a0:a0 + len(q)] = torch.tensor(q); att[i, :a0 + len(q)] = 1
         e = emb(inp).clone(); e[:, len(pre_ids):len(pre_ids) + nb] = E
         h = llm.model(inputs_embeds=e, attention_mask=att).last_hidden_state[:, :-1]; y = lab[:, 1:]; m = y != -100   # lm_head on answer positions only
-        return F.cross_entropy(llm.lm_head(h[m]).float(), y[m])
+        return F.cross_entropy(llm.lm_head(h[m]).float(), y[m], reduction='sum'), int(m.sum())
 
     ci = meta.img_concept; samp = lambda k: concept_sents[ci[k - 1]][rng.integers(len(concept_sents[ci[k - 1]]))]
     name = time.strftime('%Y-%m-%d') + f'_fv_lang_c_t{a.target:02d}{suf}' + ('_measure' if a.stage == 'measure' else '') + ('_ckpt' if a.grad_ckpt else '') + ('_smoke' if a.smoke else '')
@@ -135,8 +151,8 @@ def main():
     while step < max_steps:
         perm = torch.from_numpy(rng.permutation(len(TR))).to(dev)
         for b in range(0, len(TR) - bs + 1, bs):
-            x, p, sj, _, _, code, _ = TR.batch(perm[b:b + bs]); loss = lm_loss(x, p, sj, code, samp)
-            opt.zero_grad(set_to_none=True); loss.backward(); torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0); opt.step(); step += 1
+            x, p, sj, _, _, code, _ = TR.batch(perm[b:b + bs])
+            opt.zero_grad(set_to_none=True); loss = lm_backward(x, p, sj, code, samp); torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0); opt.step(); step += 1
             if step % 100 == 0: print(f'step {step} loss {loss.item():.4f} ({time.time() - t1:.0f}s)', flush=True)
             if step % (cc['smoke_eval'] if a.smoke else cc['eval_every']) == 0 or step >= max_steps:
                 vl = vloss(VA, vidx); hist.append(dict(stage='shared', step=step, valid=vl, train=loss.item(), seconds=time.time() - t1)); print(f'step {step}: valid {vl:.4f}', flush=True)
@@ -158,7 +174,7 @@ def main():
             perm = torch.from_numpy(rng.permutation(len(CT))).to(dev)
             for k, b in enumerate(range(0, max(len(CT) - bs + 1, 1), bs)):
                 if a.smoke and k >= cc['smoke_steps']: break
-                x, p, sj, _, _, code, _ = CT.batch(perm[b:b + bs]); loss = lm_loss(x, p, sj, code, samp); copt.zero_grad(set_to_none=True); loss.backward()
+                x, p, sj, _, _, code, _ = CT.batch(perm[b:b + bs]); copt.zero_grad(set_to_none=True); loss = lm_backward(x, p, sj, code, samp)
                 W.grad[:ti] = 0; copt.step()
             vl = vloss(CV, cvi); hist.append(dict(stage=f'cal_{kname}', epoch=ep, valid=vl))
             if vl < b_v: b_v, row, badc = vl, W[ti].detach().clone(), 0

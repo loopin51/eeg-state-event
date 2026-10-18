@@ -1,0 +1,10 @@
+# D-118 amendments 1-2: low-level dependence D of arm 'atm' (scripts/fv_pairs.py --stage infer, then --stage dvalue, with
+# --config-override this file on configs/fv_pairs.yaml): same pairs, held-out predictors and pigeonhole as D-115; no label-shuffle
+# model (the challenger arms have none). Development runs from the public snapshot below.
+dev_runs:
+  candidate: atm
+  shuffle_seed: null
+  commit: 9406dc5559357560e9ca2ca505cefe1e2836c5f9
+infer:
+  out_dir: data/cache/fv_d118/pairs_atm/infer
+out_dir: results/fv_d118/pairs_atm

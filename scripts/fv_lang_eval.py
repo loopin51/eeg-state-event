@@ -8,11 +8,15 @@
                 power on planted vectors. -> results/fv_lang/sim_a.json. No EEG-derived value is read.
 Cells are subject x test row; truth of row k = the names-table row of test concept k (test-code order).
 
+  --stage bsim  method B information-zero simulation (amendment 5, one run of each kind, report only): G1 and G2 of method B with
+                sim_gauss / sim_const / sim_planted in place of the EEG condition; the label-shuffle stand-in of subject s is the
+                sim_gauss output of the next subject (an independent Gaussian draw, as in --stage sim). -> results/fv_lang/sim_b.json.
+
   --stage verdict  once (amendments 1, 2, 5): G1 -> G2 -> G3 with their premises (rule N) and the report-only items from the
                 method B outputs (fv_lang_b.py, fetched run folders) and the method C outputs (fv_lang_c.py, fetched run folders).
                 -> results/fv_lang/verdict.json (refuses to overwrite).
 
-usage: env_nlp/bin/python scripts/fv_lang_eval.py configs/fv_lang.yaml --stage {a,sim,verdict}
+usage: env_nlp/bin/python scripts/fv_lang_eval.py configs/fv_lang.yaml --stage {a,sim,bsim,verdict}
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
@@ -71,11 +75,11 @@ def load_c(subjects):
     return outs
 
 
-def m3_of(embs, subjects, test_img):
-    """[ns, 200] M3 cells; a row -1 output (no EEG) is scored against every truth"""
+def m3_of(embs, subjects, test_img, shift=0):
+    """[ns, 200] M3 cells; a row -1 output (no EEG) is scored against every truth; shift: truth of row k is row (k + shift) % 200"""
     M = np.zeros((len(subjects), 200))
     for i, s in enumerate(subjects):
-        E = np.stack([embs[(s, k)] if (s, k) in embs else embs[(s, -1)] for k in range(200)]); M[i] = L.m3_cells(E, test_img, np.arange(200))
+        E = np.stack([embs[(s, k)] if (s, k) in embs else embs[(s, -1)] for k in range(200)]); M[i] = L.m3_cells(E, test_img, (np.arange(200) + shift) % 200)
     return M
 
 
@@ -128,8 +132,28 @@ def verdict(c, J, V, tt, split, subjects, test_img, out, t0):
     json.dump(res, open(vf, 'w'), indent=1); print(json.dumps({k: res[k] for k in ('G1', 'G2', 'G3') if k in res}, indent=1, default=str)[:4000])
 
 
+def bsim(c, J, split, subjects, test_img, out, t0):
+    from ese.things import verdict as VV
+    B, BE = load_b(c); rng = np.random.default_rng(20261871); nb = 1000; n = len(subjects); res = {}
+    G = BE['sim_gauss']; ref = {(s, k): G[(subjects[(i + 1) % n], k)] for i, s in enumerate(subjects) for k in range(200)}; M_ref = m3_of(ref, subjects, test_img)
+    for kind in ('sim_gauss', 'sim_const', 'sim_planted'):
+        M = m3_of(BE[kind], subjects, test_img); D1 = M - M_ref; g1 = VV.rule(VV.pigeonhole(D1, nb, rng), D1.mean(), 5, 0.05)
+        Ms = m3_of(BE[kind], subjects, test_img, shift=1); Ds = M - Ms; g1s = VV.rule(VV.pigeonhole(Ds, nb, rng), Ds.mean(), 5, 0.05)
+        TE = L.table(J, B[kind], subjects); TM = L.table(J, B[kind], subjects, shift=1)
+        pt, dr = L.boot_matched(TM, TE, lambda hA, eA, hB, eB: eA.mean() - eB.mean(), nb, rng)
+        grp = {}
+        for (s, k), (sent, _) in B[kind].items(): g = J.group(sent, split); grp[g] = grp.get(g, 0) + 1
+        res[kind] = dict(G1=dict(g1, m3=float(M.mean()), m3_ref=float(M_ref.mean())), G1_shifted_truth=dict(g1s, m3_mismatch=float(Ms.mean())),
+                         G2=dict(point=pt, lower=float(np.percentile(dr, 5)), adopted=bool(np.percentile(dr, 5) > 0), err=float(TE['err'].mean()), err_mismatch=float(TM['err'].mean())),
+                         m1=float(TE['hit'].mean()), m2=float(TE['err'].mean()), mention=float((TE['hit'] | TE['err']).mean()), precision=L.prec(TE['hit'], TE['err']),
+                         central_group={k: v / len(B[kind]) for k, v in grp.items()})
+        print(kind, json.dumps({k: res[kind][k] for k in ('G1', 'G1_shifted_truth', 'G2', 'm1', 'm2')}), flush=True)
+    json.dump(dict(stage='bsim', note='method B, one run per kind; label-shuffle stand-in = sim_gauss output of the next subject (for sim_gauss itself this is a subject permutation of the same cells, so its G1 difference is 0 by construction); G1_shifted_truth = M3 against truth row k+1 (mismatched pairs, as G2); report only', results=res,
+                   b_dir=sorted(glob.glob(P('results/runs/*_fv_lang_b_sim')))[-1], seconds=time.time() - t0), open(os.path.join(out, 'sim_b.json'), 'w'), indent=1)
+
+
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--stage', required=True, choices=['a', 'sim', 'verdict'])
+    ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--stage', required=True, choices=['a', 'sim', 'bsim', 'verdict'])
     a = ap.parse_args(); c = yaml.safe_load(open(P(a.config))); t0 = time.time(); out = P('results/fv_lang'); os.makedirs(out, exist_ok=True)
     V, names, tt, split = setup(c); J = L.Judged(V, tt); subjects = c['subjects']
     pool = [r['sentence'] for r in csv.DictReader(open(os.path.join(P(c['pool']['out_dir']), 'pool.tsv'), encoding='utf-8'), delimiter='\t')]
@@ -137,6 +161,7 @@ def main():
     test_img = np.load(P(c['test_image'])).astype(np.float64); NT = np.load(P(c['names_text'])).astype(np.float64)
     names_test = NT[tt]                                                     # 200 test names in test-code order
     if a.stage == 'verdict': return verdict(c, J, V, tt, split, subjects, test_img, out, t0)
+    if a.stage == 'bsim': return bsim(c, J, split, subjects, test_img, out, t0)
     if a.stage == 'a':
         res, lines = {}, []
         for cond in A_CONDS:
