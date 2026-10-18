@@ -18,10 +18,13 @@ pool:                                   # D-117 amendments 3-4 (+5: parameters t
   # 2026-10-18); not sent, the provider default applies (amendment 5)
   n_sentences: 5
   retries: 3                            # extra requests after the first when fewer than 5 sentences pass the format check
+  truncation_round: {max_tokens: 2000, retries: 4}   # amendment 7: only concepts still short after the first round that had a
+                                        # truncated response (reasoning tokens count toward max_tokens); attempts 4-7
   fallback: "A photo of a {name}."
   threads: 8
   cost_cap_usd: 3.0                     # stop before the next request once the summed reported cost reaches this
-  key_env: OPENROUTER_API_KEY           # or a file named by OPENROUTER_KEY_FILE (default ~/.config/ese/openrouter_key); never logged
+  key_env: OPENROUTER_API_KEY           # else the file named by OPENROUTER_KEY_FILE, else key_file; never logged
+  key_file: .secrets/openrouter_key     # project-relative, git-ignored (mode 600)
   system: "You write short, literal captions of photographs for a vision research dataset."
   user: |-
     Concept: {name}
@@ -46,7 +49,7 @@ z:                                      # F-V V2 predicted embeddings (scripts/f
   n_seeds: 3
 subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 pool_text:                              # fv_lang_embed.py output, read in place (k3s) or after fetching (server)
-  dirs: [/shared/runs/loopin51/ese-fv-lang-embed/2026-10-18_fv_lang_embed, results/runs/2026-10-18_fv_lang_embed]
+  dirs: [/shared/runs/loopin51/ese-fv-lang-embed/2026-10-19_fv_lang_embed, results/runs/2026-10-19_fv_lang_embed]
 sim:                                    # information-zero and planted-signal inputs (amendment 5)
   seed: 20261872
   planted_target_mrp: 0.77              # decoder level: 200-test-name MRP of the planted vectors (bisection on the noise scale)

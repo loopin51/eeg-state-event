@@ -25,15 +25,15 @@ def fsha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
 def key(c):
     k = os.environ.get(c['key_env'])
     if k: return k.strip()
-    f = os.path.expanduser(os.environ.get('OPENROUTER_KEY_FILE', '~/.config/ese/openrouter_key'))
+    f = os.environ.get('OPENROUTER_KEY_FILE') or os.path.join(ROOT, c['key_file'])
     if os.path.exists(f): return open(f).read().strip()
     sys.exit(f'no API key: set {c["key_env"]} or write the key to {f}')
 
 
-def body(c, name, definition):
+def body(c, name, definition, max_tokens=None):
     schema = {'type': 'object', 'properties': {'sentences': {'type': 'array', 'items': {'type': 'string'}}}, 'required': ['sentences'],
               'additionalProperties': False}
-    return {'model': c['model'], 'provider': c['provider'], 'max_tokens': c['max_tokens'], 'usage': {'include': True},
+    return {'model': c['model'], 'provider': c['provider'], 'max_tokens': max_tokens or c['max_tokens'], 'usage': {'include': True},
             'response_format': {'type': 'json_schema', 'json_schema': {'name': 'captions', 'strict': True, 'schema': schema}},
             'messages': [{'role': 'system', 'content': c['system']},
                          {'role': 'user', 'content': c['user'].format(name=name, definition=definition, n=c['n_sentences'])}]}
@@ -52,6 +52,18 @@ def post(c, k, b):
         except Exception as e:
             if t < 3: time.sleep(5 * (t + 1)); continue
             return {'error': {'exception': repr(e)}}
+
+
+def truncated(resp): return ((resp.get('choices') or [{}])[0].get('finish_reason')) == 'length'
+
+
+def next_tokens(c, att, recs):
+    """max_tokens of attempt `att` given the earlier records, or None when no further attempt is allowed (amendment 7: attempts
+    after the first round only for a concept with a truncated response, with truncation_round.max_tokens)"""
+    n1, tr = 1 + c['retries'], c.get('truncation_round') or {}
+    if att < n1: return c['max_tokens']
+    if tr and att < n1 + tr['retries'] and any(truncated(d['response']) for d in recs): return tr['max_tokens']
+    return None
 
 
 def parse(resp):
@@ -82,23 +94,23 @@ def main():
 
     def run(item):
         i, concept, name, definition = item
-        prev = done.get(concept, [])
-        if prev and prev[-1].get('final'): return
-        good = []
-        for d in prev: good += [s for s in parse(d['response']) if V.judge(s, i)['cls'] == 'hit' and s not in good]
-        for att in range(len(prev), 1 + c['retries']):
-            if len(good) >= c['n_sentences']: break
+        recs = list(done.get(concept, [])); good = []
+        for d in recs: good += [s for s in parse(d['response']) if V.judge(s, i)['cls'] == 'hit' and s not in good]
+        att = len(recs)
+        while len(good) < c['n_sentences']:
+            mt = next_tokens(c, att, recs)
+            if mt is None: break
             with lock:
                 if spent[0] >= c['cost_cap_usd']: print('cost cap reached; stopping', flush=True); return
-            b = body(c, name, definition); r = post(c, k, b); new = parse(r)
+            b = body(c, name, definition, mt); r = post(c, k, b); new = parse(r)
             ok = [s for s in new if V.judge(s, i)['cls'] == 'hit']; good += [s for s in ok if s not in good]
-            fin = len(good) >= c['n_sentences'] or att == c['retries']
             rec = dict(concept=concept, row=i, attempt=att, date=time.strftime('%Y-%m-%dT%H:%M:%S%z'), request=b, response=r,
-                       n_parsed=len(new), n_pass=len(ok), final=fin)
+                       n_parsed=len(new), n_pass=len(ok))
+            rec['final'] = len(good) >= c['n_sentences'] or next_tokens(c, att + 1, recs + [rec]) is None
             with lock:
                 spent[0] += float(r.get('usage', {}).get('cost') or 0)
                 with open(raw, 'a') as f: f.write(json.dumps(rec, ensure_ascii=False) + '\n')
-            if fin: break
+            recs.append(rec); att += 1
 
     t0 = time.time()
     with ThreadPoolExecutor(c['threads']) as ex:
@@ -109,7 +121,8 @@ def main():
     recs = {}
     for l in open(raw): d = json.loads(l); recs.setdefault(d['concept'], []).append(d)
     pool, rep = [], dict(models={}, providers={}, n_requests=0, cost_usd=0.0, n_fallback_sentences=0, fallback_concepts=[],
-                         refusal_or_error_requests=0, retried_concepts=0)
+                         refusal_or_error_requests=0, truncated_requests=0, retried_concepts=0,
+                         truncation_round=dict(requests=0, cost_usd=0.0, concepts=[]))
     for i, concept, name, _ in todo:
         ds = sorted(recs.get(concept, []), key=lambda d: d['attempt']); good = []
         rep['retried_concepts'] += len(ds) > 1
@@ -118,6 +131,10 @@ def main():
             rep['models'][r.get('model', '?')] = rep['models'].get(r.get('model', '?'), 0) + 1
             rep['providers'][r.get('provider', '?')] = rep['providers'].get(r.get('provider', '?'), 0) + 1
             if 'error' in r or not parse(r): rep['refusal_or_error_requests'] += 1
+            rep['truncated_requests'] += truncated(r)
+            if d['attempt'] > c['retries']:
+                t = rep['truncation_round']; t['requests'] += 1; t['cost_usd'] += float(r.get('usage', {}).get('cost') or 0)
+                if concept not in t['concepts']: t['concepts'].append(concept)
             for s in parse(r):
                 if V.judge(s, i)['cls'] == 'hit' and s not in [g[0] for g in good]: good.append((s, d['attempt']))
         good = good[:c['n_sentences']]; nf = c['n_sentences'] - len(good)
