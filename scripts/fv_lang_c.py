@@ -171,10 +171,15 @@ def main():
         print(f'calibration {kname}: {init:.4f} -> {b_v:.4f}', flush=True)
     torch.save(layers, os.path.join(out, 'layers.pt'))
     # generation on the test inputs
-    Zin = np.load(os.path.join(P(cc['inputs_dir']), f't{a.target:02d}.npz')); pg = torch.as_tensor(pos, dtype=torch.float32, device=dev); rows_out = []
-    code = Zin['single_code']; first = np.array([int(np.where(code == k + 1)[0][0]) for k in range(200)])
-    inputs = {'avg20': Zin['avg20'], 'phase': Zin['phase'], 'noise': Zin['noise'], 'single1': np.asarray(Zin['single'][first], np.float32),
-              'noeeg': Zin['avg20'].mean(0, keepdims=True)}
+    pg = torch.as_tensor(pos, dtype=torch.float32, device=dev); rows_out = []
+    if a.smoke:                                                               # code check: Gaussian inputs, the test inputs are never opened
+        g = np.random.default_rng(0).standard_normal((200, pos.shape[0], rc['model']['n_times'])).astype(np.float32)
+        inputs = {k: g for k in ('avg20', 'phase', 'noise', 'single1')}; inputs['noeeg'] = g.mean(0, keepdims=True)
+    else:
+        Zin = np.load(os.path.join(P(cc['inputs_dir']), f't{a.target:02d}.npz'))
+        code = Zin['single_code']; first = np.array([int(np.where(code == k + 1)[0][0]) for k in range(200)])
+        inputs = {'avg20': Zin['avg20'], 'phase': Zin['phase'], 'noise': Zin['noise'], 'single1': np.asarray(Zin['single'][first], np.float32),
+                  'noeeg': Zin['avg20'].mean(0, keepdims=True)}
     plan = [('ses123', k) for k in ('avg20', 'phase', 'noise', 'single1', 'noeeg')] + [(k, 'avg20') for k in ('k0', 'ses1', 'ses12') if k in layers]
     if a.smoke: plan = plan[:2]
 
