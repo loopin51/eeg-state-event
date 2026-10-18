@@ -76,3 +76,30 @@ b:                                      # method B (amendment 5)
     sim: [sim_gauss, sim_const, sim_planted]
     seeds12: [dec|ses123|avg20@1, dec|ses123|avg20@2]
     report: [dec|k0|avg20, dec|ses123|single1]
+c:                                      # method C (corrections 1-2, amendments 1, 5, 6)
+  train_config: configs/fv_train.yaml
+  llm: data/raw/qwen3_4b_instruct_2507  # same LLM as method B (amendment 5); fallback data/raw/qwen3_1p7b by the measurement rule
+  llm_sha256: {model-00001-of-00003.safetensors: 75311d91bb08cf0b882913da464a1e722a31fb44db35208663487efb7a3d8ed6,
+               model-00002-of-00003.safetensors: 0b48adbb1f60e901153d91907ba11ce63bd4b8b584482e730f48808d055dfba1,
+               model-00003-of-00003.safetensors: 7dd39ccca5e4de123c74c14af44c9bf2eb75df33b4614382af0134528e060d5d}
+  grad_checkpointing: false
+  instruction: Describe the photo in one sentence.
+  final_glob: /shared/runs/loopin51/ese-fv-final-*/*_fv_final_bm_s{seed}_t{tt}{suffix}
+  final_seed: 20261811
+  inputs_dir: data/cache/things_eeg2/verdict_inputs          # V1 test inputs (session 4), staged with the fvverdict group
+  seed: 20261881
+  batch: 32
+  lr_enc: 1.0e-4
+  lr_proj: 1.0e-3
+  weight_decay: 0.01
+  eval_every: 1000                      # steps between validation checks (amendment 6: steps replace epochs)
+  max_steps: 8000
+  patience: 2
+  cal_lr: 3.0e-4
+  cal_max_epochs: 3
+  cal_patience: 1
+  gen_batch: 32
+  max_new_tokens: 48
+  measure_steps: 12
+  smoke_steps: 20
+  smoke_eval: 10
