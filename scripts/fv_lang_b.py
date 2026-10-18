@@ -15,7 +15,10 @@ b_<part>_out.npy (CLIP text embedding of each output, row order of the jsonl), i
 
 usage: python scripts/fv_lang_b.py configs/fv_lang.yaml --part {main,shuffle,noise,phase,noeeg,sim,seeds12,report} [--smoke]
 """
-import os, sys, csv, json, time, re, hashlib, argparse, yaml, numpy as np
+import os
+os.environ.setdefault('VLLM_ENABLE_V1_MULTIPROCESSING', '0')   # in-process engine (the spawned engine core fails to start on the k3s image)
+os.environ.setdefault('VLLM_USE_FLASHINFER_SAMPLER', '0')      # no nvcc in the image for the FlashInfer JIT; PyTorch sampler, same settings
+import sys, csv, json, time, re, hashlib, argparse, yaml, numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, os.path.join(ROOT, 'src')); sys.path.insert(0, os.path.join(ROOT, 'scripts'))
 P = lambda p: p if os.path.isabs(p) else os.path.join(ROOT, p)
 
