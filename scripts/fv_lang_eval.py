@@ -8,12 +8,16 @@
                 power on planted vectors. -> results/fv_lang/sim_a.json. No EEG-derived value is read.
 Cells are subject x test row; truth of row k = the names-table row of test concept k (test-code order).
 
-usage: env_nlp/bin/python scripts/fv_lang_eval.py configs/fv_lang.yaml --stage {a,sim}
+  --stage verdict  once (amendments 1, 2, 5): G1 -> G2 -> G3 with their premises (rule N) and the report-only items from the
+                method B outputs (fv_lang_b.py, fetched run folders) and the method C outputs (fv_lang_c.py, fetched run folders).
+                -> results/fv_lang/verdict.json (refuses to overwrite).
+
+usage: env_nlp/bin/python scripts/fv_lang_eval.py configs/fv_lang.yaml --stage {a,sim,verdict}
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
     os.environ.setdefault(_v, os.environ.get('ESE_NUM_THREADS', '8'))
-import sys, csv, json, time, argparse, yaml, numpy as np
+import sys, csv, glob, json, time, argparse, yaml, numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, os.path.join(ROOT, 'src'))
 P = lambda p: p if os.path.isabs(p) else os.path.join(ROOT, p)
 from ese.things import lang_rows as R, lang_eval as L
@@ -45,14 +49,94 @@ def summarize(J, outs, subjects, Etext_rows, test_img, split):
                 m3=m3, central_group={k: v / len(outs) for k, v in grp.items()})
 
 
+def load_b(c):
+    """method B outputs of every part -> {cond: {(s, k): (sentence, margin)}}, {cond: {(s, k): CLIP embedding}}"""
+    outs, embs = {}, {}
+    for part in c['b']['parts']:
+        d = sorted(glob.glob(P(f'results/runs/*_fv_lang_b_{part}')))
+        if not d: continue
+        rows = [json.loads(l) for l in open(os.path.join(d[-1], f'b_{part}.jsonl'))]; E = np.load(os.path.join(d[-1], f'b_{part}_out.npy')).astype(np.float64)
+        for r, e in zip(rows, E): outs.setdefault(r['cond'], {})[(r['subject'], r['row'])] = (r['output'], r['margin']); embs.setdefault(r['cond'], {})[(r['subject'], r['row'])] = e
+    return outs, embs
+
+
+def load_c(subjects):
+    outs = {}
+    for s in subjects:
+        for suf in ('', '_shuffle'):
+            d = [x for x in sorted(glob.glob(P(f'results/runs/*_fv_lang_c_t{s:02d}{suf}'))) if os.path.exists(os.path.join(x, 'c_out.jsonl'))]
+            if not d: continue
+            for l in open(os.path.join(d[-1], 'c_out.jsonl')):
+                r = json.loads(l); outs.setdefault(r['cond'], {})[(r['subject'], r['row'])] = (r['output'], r['confidence'])
+    return outs
+
+
+def m3_of(embs, subjects, test_img):
+    """[ns, 200] M3 cells; a row -1 output (no EEG) is scored against every truth"""
+    M = np.zeros((len(subjects), 200))
+    for i, s in enumerate(subjects):
+        E = np.stack([embs[(s, k)] if (s, k) in embs else embs[(s, -1)] for k in range(200)]); M[i] = L.m3_cells(E, test_img, np.arange(200))
+    return M
+
+
+def verdict(c, J, V, tt, split, subjects, test_img, out, t0):
+    from ese.things import verdict as VV
+    vf = os.path.join(out, 'verdict.json'); assert not os.path.exists(vf), 'the verdict is computed once'
+    B, BE = load_b(c); C = load_c(subjects); rng = np.random.default_rng(20261871); nb = 1000; res = dict(stage='verdict', order='G1 -> G2 -> G3')
+    main, shuf = 'dec|ses123|avg20', 'shuf|ses123|avg20'
+    # G1: method B, M3(EEG) - M3(label-shuffle)
+    M_dec, M_sh = m3_of(BE[main], subjects, test_img), m3_of(BE[shuf], subjects, test_img); Dg1 = M_dec - M_sh
+    g1 = VV.rule(VV.pigeonhole(Dg1, nb, rng), Dg1.mean(), 5, 0.05); e_dec = float(M_dec.mean() - 0.5); prem1 = {}
+    for cond in ('dec|ses123|noise', 'dec|ses123|phase', 'noeeg'):
+        Ec = m3_of(BE[cond], subjects, test_img) - 0.5; prem1[cond] = VV.control_rule(Ec, VV.pigeonhole(Ec, nb, rng), e_dec, 0.1, 5)
+    g1['premises'] = prem1; g1['m3'] = dict(eeg=float(M_dec.mean()), shuffle=float(M_sh.mean())); g1['adopted_with_premises'] = bool(g1['adopted'] and all(p['passed'] for p in prem1.values()))
+    res['G1'] = g1; go = g1['adopted_with_premises']
+
+    def premise_noeeg(outs_noeeg, outs_dec):
+        """rule N on M1 excess and M2 reduction over the exact concept-permutation means, no-EEG vs the decoder condition"""
+        def ex(outs):
+            T = L.table(J, outs, subjects); H = np.zeros((len(subjects), 200)); Eg = np.zeros_like(H)
+            for i, s in enumerate(subjects):
+                for k in range(200): ph, pe = J.perm_rates((outs[(s, k)] if (s, k) in outs else outs[(s, -1)])[0]); H[i, k], Eg[i, k] = ph, pe
+            return T['hit'] - H, Eg - T['err']
+        h0, e0 = ex(outs_noeeg); h1, e1 = ex(outs_dec)
+        return dict(m1=VV.control_rule(h0, VV.pigeonhole(h0, nb, rng), h1.mean(), 0.1, 5), m2=VV.control_rule(e0, VV.pigeonhole(e0, nb, rng), e1.mean(), 0.1, 5))
+    # G2: method B, central-object error rate, mismatched pairs - EEG, matched mention rates
+    TE = L.table(J, B[main], subjects); TM = L.table(J, B[main], subjects, shift=1)
+    pt, dr = L.boot_matched(TM, TE, lambda hA, eA, hB, eB: eA.mean() - eB.mean(), nb, rng)
+    g2 = dict(point=pt, lower=float(np.percentile(dr, 5)), adopted=bool(np.percentile(dr, 5) > 0), err_eeg=float(TE['err'].mean()), err_mismatch=float(TM['err'].mean()),
+              mention_eeg=float((TE['hit'] | TE['err']).mean()), mention_mismatch=float((TM['hit'] | TM['err']).mean()))
+    g2['premise_noeeg'] = premise_noeeg(B['noeeg'], B[main]); g2['adopted_with_premises'] = bool(g2['adopted'] and all(v['passed'] for v in g2['premise_noeeg'].values()))
+    res['G2'] = dict(g2, tested=go); go = go and g2['adopted_with_premises']
+    # G3: precision B - C at matched mention rate
+    if main in C:
+        TC = L.table(J, C[main], subjects); pt, dr = L.boot_matched(TE, TC, lambda hA, eA, hB, eB: L.prec(hA, eA) - L.prec(hB, eB), nb, rng)
+        g3 = dict(point=pt, lower=float(np.percentile(dr, 5)), adopted=bool(np.percentile(dr, 5) > 0), precision_B=L.prec(TE['hit'], TE['err']), precision_C=L.prec(TC['hit'], TC['err']),
+                  mention_B=float((TE['hit'] | TE['err']).mean()), mention_C=float((TC['hit'] | TC['err']).mean()))
+        if 'noeeg' in C: g3['premise_noeeg_C'] = premise_noeeg(C['noeeg'], C[main])
+        g3['premise_noeeg_B'] = g2['premise_noeeg']; g3['adopted_with_premises'] = bool(g3['adopted'] and all(v['passed'] for k in ('premise_noeeg_B', 'premise_noeeg_C') if k in g3 for v in g3[k].values()))
+        res['G3'] = dict(g3, tested=go)
+    # report only: every method x condition summary
+    rep = {}
+    for name, D in (('B', B), ('C', C)):
+        for cond, outs in D.items():
+            T = L.table(J, outs, subjects); grp = {}
+            for (s, k), (sent, _) in outs.items(): g = J.group(sent, split); grp[g] = grp.get(g, 0) + 1
+            rep[f'{name}|{cond}'] = dict(m1=float(T['hit'].mean()), m2=float(T['err'].mean()), mention=float((T['hit'] | T['err']).mean()), precision=L.prec(T['hit'], T['err']),
+                                       central_group={k: v / len(outs) for k, v in grp.items()}, m3=float(m3_of(BE[cond], subjects, test_img).mean()) if name == 'B' and cond in BE else None)
+    res['report'] = rep; res['seconds'] = time.time() - t0
+    json.dump(res, open(vf, 'w'), indent=1); print(json.dumps({k: res[k] for k in ('G1', 'G2', 'G3') if k in res}, indent=1, default=str)[:4000])
+
+
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--stage', required=True, choices=['a', 'sim'])
+    ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--stage', required=True, choices=['a', 'sim', 'verdict'])
     a = ap.parse_args(); c = yaml.safe_load(open(P(a.config))); t0 = time.time(); out = P('results/fv_lang'); os.makedirs(out, exist_ok=True)
     V, names, tt, split = setup(c); J = L.Judged(V, tt); subjects = c['subjects']
     pool = [r['sentence'] for r in csv.DictReader(open(os.path.join(P(c['pool']['out_dir']), 'pool.tsv'), encoding='utf-8'), delimiter='\t')]
     pd = R.first_dir(c['pool_text']['dirs'], ROOT); PE = np.load(os.path.join(pd, 'pool_text.npy')).astype(np.float64); assert len(PE) == len(pool)
     test_img = np.load(P(c['test_image'])).astype(np.float64); NT = np.load(P(c['names_text'])).astype(np.float64)
     names_test = NT[tt]                                                     # 200 test names in test-code order
+    if a.stage == 'verdict': return verdict(c, J, V, tt, split, subjects, test_img, out, t0)
     if a.stage == 'a':
         res, lines = {}, []
         for cond in A_CONDS:

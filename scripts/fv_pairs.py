@@ -145,7 +145,7 @@ def stage_infer(c, tc, meta, a):
     dev_c = meta.dev_concepts(tc['dev']['salt'], tc['dev']['n']); Tdev = V.unit(np.load(os.path.join(P(tc['targets']['dir']), tc['targets']['names_text']))[name_rows(tc, meta, dev_c)])
     t0 = time.time()
     for t in dr['old_targets'] + dr['new_targets']:
-        dirs = [(f'seed{j}', run_dir(c, tc, t, s, False)) for j, s in enumerate(dr['seeds'])] + [('shuffle', run_dir(c, tc, t, dr['shuffle_seed'], True))]
+        dirs = [(f'seed{j}', run_dir(c, tc, t, s, False)) for j, s in enumerate(dr['seeds'])] + ([('shuffle', run_dir(c, tc, t, dr['shuffle_seed'], True))] if dr.get('shuffle_seed') is not None else [])
         if c['smoke']: codes, nrep = dev_codes, np.full(len(dev_codes), 4); X = np.random.default_rng([1, t]).standard_normal((len(dev_codes), pos.shape[0], c['smoke_T'])).astype(np.float32)   # code check: no EEG
         else: codes, X, nrep = subject_mean(cache, t, ic['sessions'], codes=dev_codes)
         assert np.array_equal(codes, dev_codes), f't{t}: development photos missing'
@@ -166,16 +166,23 @@ def stage_infer(c, tc, meta, a):
                         o = [net(torch.from_numpy(XX[b:b + ic['batch']]).to(dv), pos[None].expand(len(XX[b:b + ic['batch']]), -1, -1), torch.full((len(XX[b:b + ic['batch']]),), ti, device=dv)).float().cpu().numpy()
                              for b in range(0, len(XX), ic['batch'])]
                         out[f'{tag}|{lay}|{kind}'] = np.concatenate(o).astype(np.float32)
+            if r['candidate'] == 'hive':                                          # D-118 amendment 2: E4 read-out (fused -> ViT-H-14) of this run
+                from fv_d118_compare import readout_for
+                W, b = readout_for(tc, meta, np.load(os.path.join(d, 'dev_scores.npz'))['fused_train_images'])
+                for key in [k for k in out if k.startswith(tag + '|')]: out[key] = V.unit(out[key].astype(np.float64) @ W + b).astype(np.float32)
+                man['runs'][f't{t:02d}_{tag}']['readout'] = 'ridge fused -> ViT-H-14 (fv_d118_compare.readout_for)'
             if tag != 'shuffle': Es.append(np.load(os.path.join(d, 'dev_scores.npz')))
         f = os.path.join(od, f'z_raw_t{t:02d}.npz'); np.savez(f, rows=st_rows, **out); man['files'][os.path.basename(f)] = fsha(f)
         if not c['smoke']:
             tr = Es[0]['A_ses4_true']; assert all(np.array_equal(z['A_ses4_true'], tr) for z in Es)
-            E = V.seed_mean([z['A_ses4_E_ses123'] for z in Es]); man['quality'][f't{t:02d}'] = dict(dev_mrp_seedmean_A_ses123=float(V.cells(E @ Tdev.T, tr).mean()), n_concepts=int(len(tr)),
+            E = V.seed_mean([z['A_ses4_E_ses123'] for z in Es])
+            if dr['candidate'] == 'hive': E = None
+            man['quality'][f't{t:02d}'] = dict(dev_mrp_seedmean_A_ses123=None if E is None else float(V.cells(E @ Tdev.T, tr).mean()), n_concepts=int(len(tr)),
                                                                                               group='new' if t in dr['new_targets'] else 'old')
         print(f't{t:02d}: outputs saved ({time.time() - t0:.0f}s)', flush=True)
     man.update(device=dv, seconds=time.time() - t0, peak_rss_gb=peak_gb(), smoke=bool(c['smoke']))
     o = P(os.path.join(c['out_dir'], 'infer_manifest.json')); os.makedirs(os.path.dirname(o), exist_ok=True); json.dump(man, open(o, 'w'), indent=1)
-    print(json.dumps(dict(quality={k: round(v['dev_mrp_seedmean_A_ses123'], 4) for k, v in man['quality'].items()})), flush=True)
+    print(json.dumps(dict(quality={k: v['dev_mrp_seedmean_A_ses123'] for k, v in man['quality'].items()})), flush=True)
 
 
 # ---------------------------------------------------------------- gate (no EEG)
@@ -275,10 +282,24 @@ def stage_verdict(c, tc, meta, a):
     json.dump(res, open(out, 'w'), indent=1); print(json.dumps(dict(adopted=adopted, D=K['D'], lower=K['lower'], A=K['A'], baseline=K['baseline'], J_shuffle=Jsh['passed'], J_noise=Jno['passed'])), flush=True)
 
 
+def stage_dvalue(c, tc, meta, a):
+    """D-118 amendments 1-2: the low-level dependence D of one arm (same pairs, held-out predictors and pigeonhole as D-115), no
+    label-shuffle term; inputs from --stage infer with this config (dev_runs.candidate = the arm). Writes out_dir/d_value.json."""
+    st = Setup(c, tc, meta); man = json.load(open(P(os.path.join(c['out_dir'], 'infer_manifest.json')))); od = P(c['infer']['out_dir'])
+    for k, h in man['files'].items(): assert fsha(os.path.join(od, k)) == h, f'{k}: output sha256 differs from the infer manifest'
+    dr = c['dev_runs']; subs = dr['old_targets'] + dr['new_targets']; nconc = len(st.dev_c); pr = st.main; concepts = np.unique(pr['concept']); N = cells(np.zeros(len(pr['I'])), pr, nconc)[1]
+    Z = {t: np.load(os.path.join(od, f'z_raw_t{t:02d}.npz')) for t in subs}; assert all(np.array_equal(z['rows'], st.rows) for z in Z.values())
+    dec = lambda t, lay: centre_unit(V.seed_mean([Z[t][f'seed{j}|{lay}|photo'] for j in range(len(dr['seeds']))]))
+    SH = {k: cells(correct(v, pr, st), pr, nconc)[0] for k, v in st.H.items()}; R = resample(len(subs), concepts, c['n_boot'], np.random.default_rng(c['seeds']['boot']))
+    S_dec = np.stack([cells(correct(dec(t, 'ses123'), pr, st), pr, nconc)[0] for t in subs]); K = k1(S_dec, {k: SH[k] for k in ('H_a', 'H_b')}, N, R, c)
+    res = dict(stage='dvalue', candidate=dr['candidate'], commit=dr['commit'], K=K, infer_manifest_sha256=fsha(P(os.path.join(c['out_dir'], 'infer_manifest.json'))))
+    json.dump(res, open(P(os.path.join(c['out_dir'], 'd_value.json')), 'w'), indent=1); print(json.dumps(K))
+
+
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--stage', choices=['infer', 'gate', 'verdict'], required=True); ap.add_argument('--config-override'); a = ap.parse_args()
+    ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--stage', choices=['infer', 'gate', 'verdict', 'dvalue'], required=True); ap.add_argument('--config-override'); a = ap.parse_args()
     c = load_cfg(a.config, a.config_override); tc = yaml.safe_load(open(P(c['train_config']))); meta = Meta(P(tc['meta']))
-    {'infer': stage_infer, 'gate': stage_gate, 'verdict': stage_verdict}[a.stage](c, tc, meta, a)
+    {'infer': stage_infer, 'gate': stage_gate, 'verdict': stage_verdict, 'dvalue': stage_dvalue}[a.stage](c, tc, meta, a)
 
 
 if __name__ == '__main__':

@@ -37,7 +37,9 @@ class Tokens(nn.Module):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--target', type=int, required=True); ap.add_argument('--shuffle', action='store_true')
     ap.add_argument('--stage', choices=['measure', 'train'], default='train'); ap.add_argument('--smoke', action='store_true')
-    a = ap.parse_args(); c = yaml.safe_load(open(P(a.config))); cc = c['c']; t0 = time.time(); dev = 'cuda'
+    ap.add_argument('--grad-ckpt', action='store_true', help='measurement of the amendment-5 fallback (LLM gradient checkpointing)')
+    a = ap.parse_args(); c = yaml.safe_load(open(P(a.config))); cc = c['c']
+    if a.grad_ckpt: cc['grad_checkpointing'] = True; t0 = time.time(); dev = 'cuda'
     tc = yaml.safe_load(open(P(cc['train_config']))); pc = yaml.safe_load(open(P(tc['prep_config']))); cache = P(pc['cache_dir'])
     torch.manual_seed(cc['seed']); rng = np.random.default_rng(cc['seed'])
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -46,7 +48,7 @@ def main():
     for f, h in cc['llm_sha256'].items(): assert fsha(os.path.join(llm_dir, f)) == h, f'LLM sha256 {f}'
     tokz = AutoTokenizer.from_pretrained(llm_dir); llm = AutoModelForCausalLM.from_pretrained(llm_dir, dtype=torch.bfloat16).to(dev).eval()
     for p in llm.parameters(): p.requires_grad_(False)
-    if cc.get('grad_checkpointing'): llm.gradient_checkpointing_enable(); llm.config.use_cache = False
+    if cc.get('grad_checkpointing'): llm.gradient_checkpointing_enable(); llm.config.use_cache = False; llm.train()   # dropout-free model: train() only switches checkpointing on
     emb = llm.get_input_embeddings(); d_llm = emb.weight.shape[1]
     # chat template pieces around the EEG tokens
     txt = tokz.apply_chat_template([{'role': 'user', 'content': '<EEG>\n' + cc['instruction']}], tokenize=False, add_generation_prompt=True)
@@ -90,11 +92,11 @@ def main():
             inp[i, :len(pre_ids)] = torch.tensor(pre_ids); inp[i, len(pre_ids) + nb:a0] = torch.tensor(post_ids); inp[i, a0:a0 + len(q)] = torch.tensor(q)
             lab[i, a0:a0 + len(q)] = torch.tensor(q); att[i, :a0 + len(q)] = 1
         e = emb(inp).clone(); e[:, len(pre_ids):len(pre_ids) + nb] = E
-        logits = llm(inputs_embeds=e, attention_mask=att).logits[:, :-1].float()
-        return F.cross_entropy(logits.reshape(-1, logits.shape[-1]), lab[:, 1:].reshape(-1), ignore_index=-100)
+        h = llm.model(inputs_embeds=e, attention_mask=att).last_hidden_state[:, :-1]; y = lab[:, 1:]; m = y != -100   # lm_head on answer positions only
+        return F.cross_entropy(llm.lm_head(h[m]).float(), y[m])
 
     ci = meta.img_concept; samp = lambda k: concept_sents[ci[k - 1]][rng.integers(len(concept_sents[ci[k - 1]]))]
-    name = time.strftime('%Y-%m-%d') + f'_fv_lang_c_t{a.target:02d}{suf}' + ('_measure' if a.stage == 'measure' else '') + ('_smoke' if a.smoke else '')
+    name = time.strftime('%Y-%m-%d') + f'_fv_lang_c_t{a.target:02d}{suf}' + ('_measure' if a.stage == 'measure' else '') + ('_ckpt' if a.grad_ckpt else '') + ('_smoke' if a.smoke else '')
     out = os.path.join(ROOT, 'results', 'runs', name); os.makedirs(out, exist_ok=True)
     yaml.safe_dump(dict(c, run=dict(target=a.target, shuffle=a.shuffle, stage=a.stage, smoke=a.smoke, final_run=os.path.basename(rd), trainers=trainers,
                                     d_llm=d_llm, device=torch.cuda.get_device_name(0))), open(os.path.join(out, 'config.yaml'), 'w'))
@@ -190,6 +192,7 @@ def main():
                     s_ = seq[i].tolist(); n = s_.index(eos) if eos in s_ else len(s_)
                     outs.append((tokz.decode(s_[:n], skip_special_tokens=True).strip(), float(tl[i, :max(n, 1)].mean())))
         return outs
+    llm.eval(); llm.config.use_cache = True
     for cal, kind in plan:
         with torch.no_grad(): W[ti] = layers[cal].to(dev)
         res = generate(inputs[kind]); arm = 'shuf' if a.shuffle else 'dec'; cond = 'noeeg' if kind == 'noeeg' else f'{arm}|{cal}|{kind}'
