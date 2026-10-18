@@ -28,7 +28,7 @@ usage: python scripts/fv_train.py configs/fv_train.yaml --target S --seed N --ca
 import os, sys, csv, json, time, copy, argparse, yaml, numpy as np, torch
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, os.path.join(ROOT, 'src'))
 from ese.things.data import Meta, subject_mean, concept_mean, GPUSet
-from ese.things.models import build, LogitScale, info_nce, scores
+from ese.things.models import build, LogitScale, info_nce, scores, FusionEncoder
 
 P = lambda p: p if os.path.isabs(p) else os.path.join(ROOT, p)
 
@@ -54,7 +54,7 @@ def shuffled_rows(meta, seed):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--target', type=int, required=True); ap.add_argument('--seed', type=int, required=True)
-    ap.add_argument('--candidate', choices=['bm', 'nice'], required=True); ap.add_argument('--mode', choices=['dev', 'final'], required=True)
+    ap.add_argument('--candidate', choices=['bm', 'nice', 'atm', 'mlp', 'hive'], required=True); ap.add_argument('--mode', choices=['dev', 'final'], required=True)
     ap.add_argument('--shuffle', action='store_true'); ap.add_argument('--smoke', action='store_true'); ap.add_argument('--fake-targets', action='store_true')
     a = ap.parse_args(); assert not a.fake_targets or a.smoke, '--fake-targets is for code smoke tests only'
     c = yaml.safe_load(open(P(a.config))); pc = yaml.safe_load(open(P(c['prep_config']))); cache = P(pc['cache_dir']); t0 = time.time(); dev = 'cuda'
@@ -63,7 +63,7 @@ def main():
     excl = set(dev_c) if a.mode == 'dev' else set(); train_c = [x for x in meta.train_concepts if x not in excl and x not in set(valid_c)]
     train_codes, valid_codes, dev_codes = meta.codes_of(train_c), meta.codes_of(valid_c), meta.codes_of(dev_c)
     trainers = [s for s in c['subjects'] if s != a.target]; ti = len(trainers)
-    o = dict(c['optim'][a.candidate], max_epochs=c['optim']['max_epochs'], patience=c['optim']['patience']); cal = dict(c['calibration'])
+    o = dict(dict(max_epochs=c['optim']['max_epochs'], patience=c['optim']['patience']), **c['optim'][a.candidate])   # D-118 arms may set their own; cal = dict(c['calibration'])
     max_updates = None
     if a.smoke:
         have = [s for s in trainers if all(os.path.exists(os.path.join(cache, f'sub-{s:02d}', f'ses-{e:02d}_training_imgavg.npy')) for e in c['sessions'])]
@@ -78,6 +78,14 @@ def main():
     trow = np.arange(len(meta.img_concept)); pi = None
     if a.shuffle: trow, pi = shuffled_rows(meta, c['shuffle_seed'])
     Tg = torch.from_numpy(Timg[trow]).to(dev)                                   # row k-1 = training target of code k
+    fusion = None
+    if a.candidate == 'hive':                                                   # D-118 E4: learned fused target from raw part embeddings
+        hv = c['hive']; parts = [torch.from_numpy(np.load(P(f))[:len(meta.img_concept)][trow].astype(np.float32)).to(dev) for f in hv['parts']]
+        fusion = FusionEncoder([x.shape[1] for x in parts], c['model']['out_dim'], c['model']['hive'].get('dropout', 0.1)).to(dev)
+        tgt = lambda u: fusion([x[u - 1] for x in parts])
+    else: tgt = lambda u: Tg[u - 1]
+    if a.candidate in ('mlp', 'hive'):                                         # channel indices go into the run config so every loader rebuilds the arm
+        names_ch = json.load(open(P(c['channels_json'])))['ch_names']; c['model'][a.candidate] = dict(c['model'][a.candidate], channel_idx=[names_ch.index(x) for x in c['model'][a.candidate]['channels']])
     yaml.safe_dump(dict(c, run=dict(target=a.target, seed=a.seed, candidate=a.candidate, mode=a.mode, shuffle=a.shuffle, smoke=a.smoke, fake_targets=a.fake_targets,
                                     trainers=trainers, n_train_concepts=len(train_c), n_valid_concepts=len(valid_c), n_dev_concepts=len(dev_c),
                                     device=torch.cuda.get_device_name(0))), open(os.path.join(out, 'config.yaml'), 'w'))
@@ -88,35 +96,49 @@ def main():
         tr_blocks.append((i, codes[~m], X[~m])); va_blocks.append((i, codes[m], X[m])); del X
     TR, VA = GPUSet(tr_blocks, pos, dev), GPUSet(va_blocks, pos, dev); del tr_blocks, va_blocks
     print(f'target {a.target} trainers {trainers}: train items {len(TR)} valid items {len(VA)} ({time.time() - t0:.0f}s)', flush=True)
-    net = build(a.candidate, ti + 1, c['model']).to(dev); scale = LogitScale(c['optim']['logit_scale_init']).to(dev)
-    opt = torch.optim.Adam(list(net.parameters()) + list(scale.parameters()), lr=o['lr'], betas=tuple(o['betas']))
+    net = build(a.candidate, ti + 1, c['model']).to(dev); scale = LogitScale(o.get('logit_scale_init', c['optim']['logit_scale_init'])).to(dev)
+    params = list(net.parameters()) + list(scale.parameters()) + (list(fusion.parameters()) if fusion is not None else [])
+    if o.get('opt', 'adam') == 'adamw': opt = torch.optim.AdamW(params, lr=o['lr'], betas=tuple(o['betas']), weight_decay=o['weight_decay'])
+    else: opt = torch.optim.Adam(params, lr=o['lr'], betas=tuple(o['betas']))
+    sched = None
     nparam = sum(p.numel() for p in net.parameters()); hist = []
 
     def loss_of(S, idx):
         x, p, subj, _, _, code, _ = S.batch(idx); u, inv = torch.unique(code, return_inverse=True)
-        return info_nce(net(x, p, subj), Tg[u - 1], inv, scale())
+        return info_nce(net(x, p, subj), tgt(u), inv, scale())
 
     vb = [torch.arange(b, min(b + o['batch'], len(VA)), device=dev) for b in range(0, len(VA), o['batch'])]
 
     def vloss():
         net.eval()
+        if fusion is not None: fusion.eval()
         with torch.no_grad(): return float(np.mean([loss_of(VA, b).item() for b in vb]))
 
     best, bad, state = float('inf'), 0, None; t_shared = time.time()
+    if o.get('cosine'): sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=o['max_epochs'] * max(len(TR) // o['batch'], 1))
     for ep in range(o['max_epochs']):
-        net.train(); perm = torch.from_numpy(rng.permutation(len(TR))).to(dev); tl = []
+        net.train()
+        if fusion is not None: fusion.train()
+        perm = torch.from_numpy(rng.permutation(len(TR))).to(dev); tl = []
         for k, b in enumerate(range(0, len(TR) - o['batch'] + 1, o['batch'])):
             if max_updates and k >= max_updates: break
-            loss = loss_of(TR, perm[b:b + o['batch']]); opt.zero_grad(set_to_none=True); loss.backward(); opt.step(); tl.append(loss.item())
+            loss = loss_of(TR, perm[b:b + o['batch']]); opt.zero_grad(set_to_none=True); loss.backward()
+            if o.get('clip_grad'): torch.nn.utils.clip_grad_norm_(params, o['clip_grad'])
+            opt.step(); tl.append(loss.item())
+            if sched is not None: sched.step()
         vl = vloss(); hist.append(dict(stage='shared', epoch=ep, train=float(np.mean(tl)), valid=vl, scale=float(scale().item()), seconds=time.time() - t_shared))
         print(f'shared epoch {ep}: train {np.mean(tl):.4f} valid {vl:.4f} scale {scale().item():.1f} ({time.time() - t0:.0f}s)', flush=True)
-        if vl < best: best, bad, state = vl, 0, (copy.deepcopy({k: v.detach().cpu() for k, v in net.state_dict().items()}), float(scale.v.item()))
+        if vl < best: best, bad, state = vl, 0, (copy.deepcopy({k: v.detach().cpu() for k, v in net.state_dict().items()}), float(scale.v.item()),
+                                                 None if fusion is None else copy.deepcopy({k: v.detach().cpu() for k, v in fusion.state_dict().items()}))
         else:
             bad += 1
             if bad >= o['patience']: break
     net.load_state_dict(state[0])
     with torch.no_grad(): scale.v.fill_(state[1])
-    torch.save(dict(net=state[0], logit_v=state[1]), os.path.join(out, 'shared.pt')); t_shared = time.time() - t_shared
+    if fusion is not None:
+        fusion.load_state_dict(state[2]); fusion.eval()
+        for p_ in fusion.parameters(): p_.requires_grad_(False)
+    torch.save(dict(net=state[0], logit_v=state[1], fusion=state[2]), os.path.join(out, 'shared.pt')); t_shared = time.time() - t_shared
     del TR, VA; torch.cuda.empty_cache()
     # 2. calibration of the target's layer
     for p in net.parameters(): p.requires_grad_(False)
@@ -172,6 +194,9 @@ def main():
                         ev[f'{kname}{tag}'] = dict(mrp=float(np.mean(1 - rk / (S.shape[1] - 1))), **{f'top{k}': float(np.mean(rk < k)) for k in c['eval']['topk']})
             res['dev'][setname] = dict(sessions=sess, n_concepts_present=int(len(keep)), n_concepts_missing=int(len(dci) - len(keep)), n_candidates=int(len(dci)), conditions=ev)
             print('DEV', setname, json.dumps({k: round(v['mrp'], 4) for k, v in ev.items()}), flush=True)
+        if fusion is not None:                                                  # E4: fused embedding of every training image (ridge read-out later)
+            with torch.no_grad(): arrays['fused_train_images'] = np.concatenate([fusion([x[b:b + 4096] for x in parts]).float().cpu().numpy() for b in range(0, len(parts[0]), 4096)])
+            arrays['fused_rows_are_shuffled'] = np.array(bool(a.shuffle))
         np.savez_compressed(os.path.join(out, 'dev_scores.npz'), **arrays)
     res['summary']['seconds'] = time.time() - t0
     json.dump(res, open(os.path.join(out, 'metrics.json'), 'w'), indent=1); print('SUMMARY', json.dumps({k: v for k, v in res['summary'].items() if k != 'calibration'}), flush=True)

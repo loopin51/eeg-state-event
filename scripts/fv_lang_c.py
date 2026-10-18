@@ -66,7 +66,8 @@ def main():
     if (a.smoke or a.stage == 'measure') and not os.path.exists(pf):        # before the pool exists: template sentences, never reported
         pool = [dict(concept=x['concept'], sentence=t.format(x['display_name'])) for x in names
                 for t in ('A photo of a {}.', 'A {} on a plain background.', 'A close-up photo of a {}.', 'A {} seen from above.', 'A small {} outdoors.')]
-    else: pool = list(csv.DictReader(open(pf, encoding='utf-8'), delimiter='\t')); folder2concept = {x['folder']: x['concept'] for x in names if x['split'] == 'train'}
+    else: pool = list(csv.DictReader(open(pf, encoding='utf-8'), delimiter='\t'))
+    folder2concept = {x['folder']: x['concept'] for x in names if x['split'] == 'train'}
     sents = {}
     for p in pool: sents.setdefault(p['concept'], []).append(p['sentence'])
     concept_sents = [sents[folder2concept[f]] for f in meta.train_concepts]               # training-concept index -> its 5 sentences

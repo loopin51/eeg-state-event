@@ -26,9 +26,16 @@ model:
   n_times: 250
   bm: {body_out: 256, n_bins: 10, merger_channels: 270, pos_dim: 2048, merger_dropout: 0.2, initial_linear: 270, hidden: 320, depth: 10, proj_dropout: 0.5}
   nice: {k: 40, m1: 25, m2: 51, s: 5, dropout: 0.5, proj_dropout: 0.5}   # Song et al. 2024 table 1 and section 4.2
+  # D-118 challenger arms (amendment 2): values from the papers / public sources (read only), not tuned on development concepts
+  atm: {heads: 4, ffn: 256, dropout_attn: 0.25, k: 40, m1: 25, m2: 51, s: 5, dropout: 0.5, proj_dropout: 0.5}   # Li et al. 2024 (ATM-S)
+  mlp: &hivech {dropout: 0.1, channels: [P7, P5, P3, P1, Pz, P2, P4, P6, P8, PO7, PO3, POz, PO4, PO8, O1, Oz, O2]}   # Brain-HIVE MBP, 17 O+P channels
+  hive: *hivech
 optim:                                        # (dev) epoch rule: best validation loss, patience, cap
   bm: {lr: 3.0e-4, betas: [0.9, 0.999], batch: 256}      # 512 used 10.4 GB with one trainer on the RTX 4070 smoke (job 498)
   nice: {lr: 2.0e-4, betas: [0.5, 0.999], batch: 1000}
+  atm: {opt: adamw, lr: 3.0e-4, betas: [0.9, 0.999], weight_decay: 0.01, batch: 1024}            # ATM paper table 8 / code; epochs and patience as bm
+  mlp: &hiveopt {opt: adamw, lr: 5.0e-4, betas: [0.9, 0.995], weight_decay: 0.05, batch: 1024, cosine: true, clip_grad: 1.0, max_epochs: 25, patience: 25}   # Brain-HIVE: 25 epochs cosine; the best validation-loss epoch is kept
+  hive: *hiveopt
   max_epochs: 100
   patience: 10
   logit_scale_init: 14.285714                 # 1 / 0.07 (CLIP)
@@ -55,5 +62,14 @@ gate_d:                                       # scripts/fv_dev_gate.py (D-112 4.
   boot_seed: 20261842                         # (ii), (iii) targets x concepts pigeonhole, 5th / 95th percentiles
   noise_upper: 0.51
   out_dir: results/fv
+channels_json: data/cache/things_eeg2/channels.json
+hive:                                         # D-118 E4 fused target (scripts/fv_embed_hive.py output staged to data/cache/fv_hive; rows = fv_embed image order, training first)
+  eegfree_config: configs/fv_eegfree.yaml
+  parts: [data/cache/fv_hive/rn50.npy, data/cache/fv_hive/b32.npy, data/cache/fv_hive/vae.npy]   # copied from results/runs/<date>_fv_embed_hive after sha256 check
+  weights:
+    files: {rn50: data/raw/hive_weights/rn50_openai/open_clip_model.safetensors, b32: data/raw/hive_weights/vitb32_laion2b/open_clip_model.safetensors,
+            vae: data/raw/hive_weights/sdxl/vae/diffusion_pytorch_model.safetensors}
+    sha256: {rn50: da0baa37fb2211eee5729ab69ed587eb10d48f5b7076ceeed01552fc3d4cb4ee, b32: ac4f8c4b88af6d963118cbf40ad93176d092abbedfcb752601ae1866352656e6,
+             vae: 1598f3d24932bcfe6634e8b618ea1e30ab1d57f5aad13a6d2de446d2199f2341}   # = HF LFS oids (timm/resnet50_clip.openai @ ec3d92c, laion/CLIP-ViT-B-32-laion2B-s34B-b79K @ 1a25a44, stabilityai/stable-diffusion-xl-base-1.0 @ 4621659)
 smoke: {trainers: 2, max_epochs: 2, max_updates: 20, cal_epochs: 1}
 out_root: results/runs
