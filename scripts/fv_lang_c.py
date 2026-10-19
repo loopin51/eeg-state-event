@@ -19,9 +19,7 @@ subject, row, output, confidence), proj.pt + encoder.pt (git-ignored).
 
 usage: python scripts/fv_lang_c.py configs/fv_lang.yaml --target S [--shuffle] [--stage {measure,train}] [--smoke]
 """
-import os
-os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')   # t01-shuffle OOM 2026-10-19: 631 MB reserved but unallocated at the failure
-import sys, csv, glob, json, time, copy, argparse, yaml, numpy as np, torch, torch.nn as nn, torch.nn.functional as F
+import os, sys, csv, glob, json, time, copy, argparse, yaml, numpy as np, torch, torch.nn as nn, torch.nn.functional as F
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, os.path.join(ROOT, 'src')); sys.path.insert(0, os.path.join(ROOT, 'scripts'))
 P = lambda p: p if os.path.isabs(p) else os.path.join(ROOT, p)
 from ese.things.data import Meta, subject_mean, GPUSet
@@ -155,7 +153,7 @@ def main():
             opt.zero_grad(set_to_none=True); loss = lm_backward(x, p, sj, code, samp); torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0); opt.step(); step += 1
             if step % 100 == 0: print(f'step {step} loss {loss.item():.4f} ({time.time() - t1:.0f}s)', flush=True)
             if step % (cc['smoke_eval'] if a.smoke else cc['eval_every']) == 0 or step >= max_steps:
-                vl = vloss(VA, vidx); hist.append(dict(stage='shared', step=step, valid=vl, train=loss.item(), seconds=time.time() - t1)); print(f'step {step}: valid {vl:.4f}', flush=True)
+                vl = vloss(VA, vidx); hist.append(dict(stage='shared', step=step, valid=vl, train=loss.item(), seconds=time.time() - t1)); print(f'step {step}: valid {vl:.4f} max_mem {torch.cuda.max_memory_allocated() / 1e9:.2f} GB', flush=True)
                 if vl < best: best, bad, state = vl, 0, copy.deepcopy({k: v.detach().cpu() for k, v in net.state_dict().items()})
                 else: bad += 1
                 if bad >= cc['patience'] or step >= max_steps: break
