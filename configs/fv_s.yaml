@@ -1,0 +1,54 @@
+# F-IX (D-119 and amendment 1): evidence-level language output. Method S (staged colour / category read-out with abstention) and
+# C2 (frozen decoder output -> linear projection trained on text only -> frozen LLM). Rules fixed before any read-out is fitted.
+train_config: configs/fv_train.yaml
+lang_config: configs/fv_lang.yaml           # names table, THINGS meta, pool, test z (F-V V2), CLIP, LLM
+pairs_config: configs/fv_pairs.yaml         # development z (D-115 infer outputs), clip_img, centre rows
+clip_index: data/cache/fv_clip/index.json   # 16,740 image paths (training 16,540 then test 200), rows of clip_img / lowlevel_pred
+image_root: data/raw/things_eeg2/image_set
+colour:
+  table: /mnt/data/eeg_datasets/color_naming_vdw2009/ColorNaming/w2c.txt
+  table_sha256: 030c328014cc31ca1a9ed1bb224e092660305069e2c3d551b1e1b10d969c0d76
+  tar_sha256: 4abad5c8ad4b4d2adf44a4b47cd7d6d3c97f453183e4258f26dd162e566d878a
+  names: [black, blue, brown, grey, green, orange, pink, purple, red, white, yellow]   # w2c column order (ties: earlier wins)
+  centre_fraction: 0.5
+  workers: 8
+categories:
+  parent: {bird: animal, insect: animal, dessert: food, fruit: food, vegetable: food, drink: food, clothing accessory: clothing,
+           kitchen tool: tool, kitchen appliance: electronic device}
+  phrase: {animal: an animal, body part: a body part, clothing: a piece of clothing, container: a container, electronic device: an electronic device,
+           food: food, furniture: a piece of furniture, home decor: a home decor item, medical equipment: a piece of medical equipment,
+           musical instrument: a musical instrument, office supply: an office supply, part of car: a part of a car, plant: a plant,
+           sports equipment: a piece of sports equipment, tool: a tool, toy: a toy, vehicle: a vehicle, weapon: a weapon}
+  prompt: "a photo of {phrase}"
+colour_prompt: "a photo of something {colour}"   # grey written as gray
+fold_salt: FV-S                              # concept folds: sha256("{folder}|FV-S") order, i mod 5
+n_folds: 5
+readout:
+  noise_copies: 2
+  noise_seed: 20261994
+  l2_grid: [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+  maxiter: 500
+  choose_tie: 0.01                           # dev excess difference below this -> text prototype (ii)
+abstain:
+  precision: 0.5
+  lift: 1.5
+  min_said: 0.10
+  min_folds: 3
+rules:
+  min_point: 0.02                            # Q1, Q2 point estimate
+  q3_floor: 0.45                             # Q3: 5th percentile of the precision
+  q3_min_cells: 0.05
+  alpha: 0.05
+  dev_gate: 0.02
+  dev_min_classes: 3
+  colour_gate: 0.10                          # EEG-free: original test CLIP -> read-out, Q2 excess
+  meter_upper: 0.01                          # pigeonhole 95th percentile of the meter excess
+  control_ratio: 0.1
+seeds:
+  boot: 20261993
+  info0: 20261991
+  signal: 20261992
+n_boot: 1000
+n_sim: 200
+out_dir: results/fv_s
+cache_dir: data/cache/fv_s
