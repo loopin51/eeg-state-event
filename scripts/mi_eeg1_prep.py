@@ -80,8 +80,10 @@ def main():
     for si, s in enumerate(subs):
         X, names, lat, rows, files = read_subject(raw, s, c); shas += [(os.path.relpath(f, raw), os.path.getsize(f), fsha(f)) for f in files]
         if ch_ref is None: ch_ref = names
-        assert names == ch_ref, f'sub-{s:02d}: channel order differs'
         rec = dict(n_markers=int(len(lat)), n_rows=len(rows))
+        if names != ch_ref:                                                    # same channel set in another order -> reorder by name; another set -> drop
+            if sorted(names) != sorted(ch_ref): rec['dropped'] = 'channel set differs'; log[f'sub-{s:02d}'] = rec; print(f'sub-{s:02d}: dropped ({rec})', flush=True); continue
+            X = X[[names.index(n) for n in ch_ref]]; rec['channels_reordered'] = True
         if len(lat) != len(rows): rec['dropped'] = 'marker / row count mismatch'; log[f'sub-{s:02d}'] = rec; print(f'sub-{s:02d}: dropped ({rec})', flush=True); continue
         off = np.abs(lat - 1 - np.array([float(r['onset']) for r in rows]) / 4.0); rec['max_offset_samples'] = float(off.max())
         if off.max() >= c['events']['max_offset_samples']: rec['dropped'] = 'onset offset'; log[f'sub-{s:02d}'] = rec; print(f'sub-{s:02d}: dropped ({rec})', flush=True); continue

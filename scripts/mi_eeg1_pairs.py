@@ -24,7 +24,9 @@ Concept row of photo outputs = unit(mean over the concept's photos of unit(z)); 
            fetch they are copied to cache_dir/infer/ and out_dir/ (sha256 checked by the verdict).
   verdict: (server gpuq CPU, once) M1 with the stored draws; J rule N for label-shuffle, Gaussian and phase-randomised
            outputs; reports r1-r6 (D-120 section 4). Writes out_dir/verdict.json.
-usage: python scripts/mi_eeg1_pairs.py configs/mi_eeg1.yaml --stage {ridge,gate,infer,verdict} [--smoke] [--runs-root DIR]
+usage: python scripts/mi_eeg1_pairs.py configs/mi_eeg1.yaml --stage {ridge,gate,infer,verdict} [--smoke] [--runs-root DIR] [--infer-dir DIR]
+       --synthetic (infer): the real models and gate with Gaussian development inputs and 3 draws (code check; the verdict
+       of such an output goes to out_dir + '_synthetic' and is never reported)
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
@@ -151,8 +153,8 @@ def stage_infer(x, a):
     c, pc = x.c, x.pc; t0 = time.time(); dv = 'cuda'; gate = json.load(open(os.path.join(x.out, 'gate.json'))); assert gate['open_eeg'] or x.smoke, 'the gate keeps the EEG closed'
     st = Setup(pc, x.tc, x.meta); assert st.files == gate['inputs']; pr = st.main; nconc = len(st.dev_c); concepts = np.unique(pr['concept']); dd = os.path.join(x.cache, 'dev')
     rows = np.load(os.path.join(dd, 'rows.npy')); assert np.array_equal(rows, st.rows); kept = np.load(os.path.join(dd, 'kept.npy')); subs = np.load(os.path.join(dd, 'subjects.npy'))[kept]
-    if x.smoke: c['n_boot'] = 3
-    if x.smoke:                                                                # code check: synthetic inputs, the development EEG is never read
+    if x.smoke or a.synthetic: c['n_boot'] = 3
+    if x.smoke or a.synthetic:                                                 # code check: synthetic inputs, the development EEG is never read
         S_ = int(kept.sum()); SD = torch.from_numpy(np.random.default_rng(1).standard_normal((S_, len(rows), 64, c['epoch']['n_times'])).astype(np.float16)).to(dv); M = torch.ones((S_, len(rows)), device=dv)
     else: SD = torch.from_numpy(np.load(os.path.join(dd, 'subjects_dev.npy'), mmap_mode='r')[kept]).to(dv); M = torch.from_numpy(np.load(os.path.join(dd, 'mask.npy'))[kept]).to(dv).float()
     W = torch.from_numpy(np.load(os.path.join(x.cache, 'W.npy'))).to(dv); pos = torch.from_numpy(np.load(os.path.join(x.cache, 'positions.npy'))).float().to(dv)
@@ -194,19 +196,21 @@ def stage_infer(x, a):
     half = {}
     for h, sel in (('odd', subs % 2 == 1), ('even', subs % 2 == 0)):
         Xh = average(sel.astype(np.int64)); half[f'zh_{h}_dec'] = dec(Xh).astype(np.float32); half[f'zh_{h}_ridge'] = ridge(Xh).astype(np.float32); man['inputs'][f'n_{h}'] = int(sel.sum())
-    od = os.path.join(P(x.tc['out_root']), time.strftime('%Y-%m-%d') + '_mi_eeg1_infer' + ('_smoke' if x.smoke else '')); os.makedirs(od, exist_ok=True); f = os.path.join(od, 'infer.npz')   # results/runs = RUN_DIR on k3s
+    od = os.path.join(P(x.tc['out_root']), time.strftime('%Y-%m-%d') + '_mi_eeg1_infer' + ('_smoke' if x.smoke else '') + ('_synthetic' if a.synthetic else '')); os.makedirs(od, exist_ok=True); f = os.path.join(od, 'infer.npz')   # results/runs = RUN_DIR on k3s
     np.savez_compressed(f, rows=rows, draws_s=draws_s, draws_c=draws_c, concepts=concepts, subjects=subs, **{f'corr_{k}': v for k, v in out.items()}, **z0, **half)
     man.update(file=os.path.basename(f), sha256=fsha(f), n_subjects=int(S), n_boot=B, device=torch.cuda.get_device_name(0), seconds=time.time() - t0, gate_sha256=fsha(os.path.join(x.out, 'gate.json')),
-               ridge_sha256=fsha(os.path.join(x.cache, 'ridge.npz')), inputs_sha256=None if x.smoke else {k: fsha(os.path.join(dd, k)) for k in ('subjects_dev.npy', 'mask.npy', 'kept.npy')})
+               ridge_sha256=fsha(os.path.join(x.cache, 'ridge.npz')), synthetic=bool(a.synthetic), inputs_sha256=None if (x.smoke or a.synthetic) else {k: fsha(os.path.join(dd, k)) for k in ('subjects_dev.npy', 'mask.npy', 'kept.npy')})
     json.dump(man, open(os.path.join(od, 'infer_manifest.json'), 'w'), indent=1); print(f'infer done ({time.time() - t0:.0f}s)', flush=True)   # copied to out_dir / cache_dir/infer after the fetch
 
 
 # ---------------------------------------------------------------- verdict (once)
 def stage_verdict(x, a):
-    c, pc = x.c, x.pc; rl = pc['rules']; out = os.path.join(x.out, 'verdict.json'); assert not os.path.exists(out), 'the verdict is computed once'
-    if x.smoke: c['n_boot'] = 3
-    gate = json.load(open(os.path.join(x.out, 'gate.json'))); assert gate['open_eeg'] or x.smoke; man = json.load(open(os.path.join(x.out, 'infer_manifest.json')))
-    f = os.path.join(x.cache, 'infer', man['file']); assert fsha(f) == man['sha256'], 'infer output changed'; assert man['gate_sha256'] == fsha(os.path.join(x.out, 'gate.json'))
+    c, pc = x.c, x.pc; rl = pc['rules']; idir = a.infer_dir or os.path.join(x.cache, 'infer'); man = json.load(open(os.path.join(idir, 'infer_manifest.json')))
+    od = x.out + ('_synthetic' if man.get('synthetic') else ''); os.makedirs(od, exist_ok=True); out = os.path.join(od, 'verdict.json'); assert not os.path.exists(out), 'the verdict is computed once'
+    if x.smoke or man.get('synthetic'): c['n_boot'] = 3
+    gate = json.load(open(os.path.join(x.out, 'gate.json'))); assert gate['open_eeg'] or x.smoke
+    f = os.path.join(idir, man['file']); assert fsha(f) == man['sha256'], 'infer output changed'; assert man['gate_sha256'] == fsha(os.path.join(x.out, 'gate.json'))
+    json.dump(man, open(os.path.join(od, 'infer_manifest.json'), 'w'), indent=1)
     st = Setup(pc, x.tc, x.meta); assert st.files == gate['inputs']; pr = st.main; nconc = len(st.dev_c); Z = np.load(f); k = Z['concepts']; assert np.array_equal(k, np.unique(pr['concept']))
     rng = np.random.default_rng(c['seeds']['boot']); S = len(Z['subjects'])
     for b in range(1, c['n_boot'] + 1):                                        # the draws are the registered stream
@@ -236,13 +240,13 @@ def stage_verdict(x, a):
     if st.maxm is not None: rep['r5_maxmargin'] = dict(n_pairs=int(len(st.maxm['I'])), A=float(correct(centre_unit(Z['z0_dec']), st.maxm, st).mean()))
     rep['r6_EEG2_D115'] = dict(A=0.46977452772699574, D=-0.03022547227300426, name_form=0.6461913467397927, note='D-115 verdict (EEG2 development decoders, 10 subjects); descriptive comparison only')
     res = dict(stage='verdict', smoke=x.smoke, n_subjects=S, n_pairs=int(len(pr['I'])), n_concepts=int(len(k)), n_boot=c['n_boot'], boot_seed=c['seeds']['boot'], gate_sha256=fsha(os.path.join(x.out, 'gate.json')),
-               infer_manifest_sha256=fsha(os.path.join(x.out, 'infer_manifest.json')), M1=M1, J=J, adopted=adopted, report=rep)
+               infer_manifest_sha256=fsha(os.path.join(od, 'infer_manifest.json')), synthetic=bool(man.get('synthetic')), M1=M1, J=J, adopted=adopted, report=rep)
     json.dump(res, open(out, 'w'), indent=1); print(json.dumps(dict(adopted=adopted, A=M1['A'], D=D, lower=lo, J={kk: v['passed'] for kk, v in J.items()}, ridge=rep['r1_ridge'], dev_mrp=rep['r3_dev_name_mrp'])), flush=True)
 
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--stage', choices=['ridge', 'gate', 'infer', 'verdict'], required=True); ap.add_argument('--smoke', action='store_true')
-    ap.add_argument('--runs-root'); a = ap.parse_args(); x = Ctx(a)
+    ap.add_argument('--runs-root'); ap.add_argument('--synthetic', action='store_true'); ap.add_argument('--infer-dir'); a = ap.parse_args(); x = Ctx(a)
     {'ridge': stage_ridge, 'gate': stage_gate, 'infer': stage_infer, 'verdict': stage_verdict}[a.stage](x, a)
 
 

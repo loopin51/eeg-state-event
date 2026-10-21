@@ -95,12 +95,23 @@ def process(c, sub, ses, fdt, chtsv, evtsv, smoke=False):
     lo, hi = max(0, sp.min() - int(5 * fs)), min(E.shape[1], si.max() + int(5 * fs))
     lv = np.log(E[:, lo:hi].var(1)); mad = np.median(np.abs(lv - np.median(lv))) * 1.4826
     bad = [names[eeg[i]] for i in np.flatnonzero(np.abs(lv - np.median(lv)) / (mad + 1e-12) > pc['bad_mad'])]
-    info = mne.create_info([names[i] for i in eeg], fs, 'eeg'); raw = mne.io.RawArray(E, info, verbose=False)
-    raw.set_montage(pc['montage'], verbose=False); raw.info['bads'] = bad
-    if bad:
-        raw.interpolate_bads(reset_bads=True, verbose=False)
-    raw.set_eeg_reference('average', verbose=False); E = raw.get_data()
+    E0 = E
+
+    def clean(bads):
+        info = mne.create_info([names[i] for i in eeg], fs, 'eeg'); raw = mne.io.RawArray(E0.copy(), info, verbose=False)
+        raw.set_montage(pc['montage'], verbose=False); raw.info['bads'] = list(bads)
+        if bads:
+            raw.interpolate_bads(reset_bads=True, verbose=False)
+        raw.set_eeg_reference('average', verbose=False); return raw.get_data()
+    E = clean(bad)
     scale = 1.0 if np.median(np.abs(E[:, lo:hi])) > 0.05 else 1e6          # to microvolts (EEGLAB data are usually in uV)
+    # amendment 1 (D-121): channels exceeding the ptp limit in more than bad_epoch_frac of all epochs are added and interpolated
+    frac = np.zeros(len(eeg)); nep = 0
+    for smp, ew in ((sp, pc['perc_epoch']), (si, pc['imag_epoch'])):
+        ep_, _ = epochs(E * scale, smp, ew[0], ew[1], fs); frac += ((ep_.max(-1) - ep_.min(-1)) > pc['reject_ptp_uv']).sum(0); nep += len(smp)
+    bad2 = [names[eeg[i]] for i in np.flatnonzero(frac / nep > pc['bad_epoch_frac']) if names[eeg[i]] not in bad]
+    if bad2:
+        bad = bad + bad2; E = clean(bad)
     E = E * scale; O = O * scale
     rng = np.random.default_rng([pc['phase_seed'], zlib.crc32(f'{sub}_{ses}'.encode())])
     out = dict(modality=np.array([t['mod'] for t in tr]), concept=np.array([t['con'] for t in tr]), block=np.array([t['block'] for t in tr]),
@@ -124,7 +135,7 @@ def process(c, sub, ses, fdt, chtsv, evtsv, smoke=False):
             gfp = epb.std(1)
             out['p_gfp'] = np.stack([gfp[:, sl(t, g)].mean(-1) for g in pc['gfp_windows']], 1).astype(np.float32)
             out['p_ep'] = epb.astype(np.float32); out['p_t'] = t
-    meta = dict(sub=sub, ses=ses, n_trials=len(tr), bad=bad, scale=scale, pnts=int(pnts), fs=fs, seconds=round(time.time() - t0, 1),
+    meta = dict(sub=sub, ses=ses, n_trials=len(tr), bad=bad, bad_from_epochs=bad2, scale=scale, pnts=int(pnts), fs=fs, seconds=round(time.time() - t0, 1),
                 p_rejected=int((~out['p_ok']).sum()), i_rejected=int((~out['i_ok']).sum()),
                 counts={f'{cd}_{m}': int(((out['modality'] == mi) & out[f'{cd}_ok']).sum()) for cd in 'pi' for mi, m in enumerate(c['modalities'])})
     return out, meta

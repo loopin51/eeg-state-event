@@ -16,6 +16,7 @@ prep:
   bad_mad: 5.0                         # robust z of the log variance -> spherical spline interpolation
   montage: standard_1005
   reject_ptp_uv: 300.0
+  bad_epoch_frac: 0.05                 # amendment 1: channel over the ptp limit in > 5% of epochs -> interpolated
   perc_epoch: [-0.5, 1.0]
   perc_baseline: [-0.2, 0.0]
   perc_window: [0.15, 1.0]
