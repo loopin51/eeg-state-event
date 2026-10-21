@@ -1,4 +1,4 @@
-"""Fact-check reports/fiv_stage/notes/t2_gate0T2_result_kr.md against results/t2 (no new computation; reads JSON only).
+"""Fact-check reports/07_fiv_stage/notes/t2_gate0T2_result_kr.md against results/t2 (no new computation; reads JSON only).
 
 Usage: python scripts/fiv_verify_t2_note.py OUT.json   (prints one line per value: O/X, item, note value, file value)
 """

@@ -1,5 +1,5 @@
 # D-113 (Gao et al. 2026 perception -> imagery extension test, no alpha). Arms a and b, meters, controls.
-# Implementation details fixed before any Gao EEG value: reports/fv_stage/notes/gao_ab_implementation_kr.md
+# Implementation details fixed before any Gao EEG value: reports/08_fv_stage/notes/gao_ab_implementation_kr.md
 bids: data/raw/gao_imagery/bids
 cache: data/cache/gao_imagery
 out: results/gao_imagery

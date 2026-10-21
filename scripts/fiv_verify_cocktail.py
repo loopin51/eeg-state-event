@@ -1,4 +1,4 @@
-"""Fact-check reports/fiv_stage/notes/cocktail_party_audit_kr.md against the non-EEG files on the server.
+"""Fact-check reports/07_fiv_stage/notes/cocktail_party_audit_kr.md against the non-EEG files on the server.
 
 Re-runs the audit's own reads (same code as the audit session): comprehension scores, content-word counts and rates,
 run lengths, and the difflib order match of content words against four Gutenberg texts. No EEG file exists here.

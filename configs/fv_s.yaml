@@ -5,6 +5,9 @@ lang_config: configs/fv_lang.yaml           # names table, THINGS meta, pool, te
 pairs_config: configs/fv_pairs.yaml         # development z (D-115 infer outputs), clip_img, centre rows
 clip_index: data/cache/fv_clip/index.json   # 16,740 image paths (training 16,540 then test 200), rows of clip_img / lowlevel_pred
 image_root: data/raw/things_eeg2/image_set
+prompt_text_glob: results/runs/*_fv_s_text/prompt_text.npy   # scripts/fv_s_text.py (k3s), fetched
+blur_file: data/cache/fv_clip/lowlevel_pred.npz   # D-114 L_blur: CLIP of the blurred image, rows = clip_index rows
+blur_key: L_blur
 colour:
   table: /mnt/data/eeg_datasets/color_naming_vdw2009/ColorNaming/w2c.txt
   table_sha256: 030c328014cc31ca1a9ed1bb224e092660305069e2c3d551b1e1b10d969c0d76
@@ -26,14 +29,20 @@ n_folds: 5
 readout:
   noise_copies: 2
   noise_seed: 20261994
-  l2_grid: [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+  l2_grid: [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0, 10.0]   # upper end 10 added 2026-10-20 (amendment 3), before any head was fitted
   maxiter: 500
   choose_tie: 0.01                           # dev excess difference below this -> text prototype (ii)
-abstain:
+abstain:                                     # amendment 2 (review 2 item 8): confidence quantile levels
   precision: 0.5
   lift: 1.5
-  min_said: 0.10
+  step: 0.01
+  max_level: 0.90                            # at least 10% of the rows said
   min_folds: 3
+calibration:                                 # amendment 2 (review 2 item 4)
+  min_dev_concepts: 3                        # category classes with fewer development concepts keep b = 0
+  cat_l2b: 0.01                              # L2 penalty on the category intercepts
+sim_calib_draws: 3                           # common random numbers for the simulation scale a (bisection on the development name MRP)
+sim_bisect: 30
 rules:
   min_point: 0.02                            # Q1, Q2 point estimate
   q3_floor: 0.45                             # Q3: 5th percentile of the precision
@@ -42,7 +51,7 @@ rules:
   dev_gate: 0.02
   dev_min_classes: 3
   colour_gate: 0.10                          # EEG-free: original test CLIP -> read-out, Q2 excess
-  meter_upper: 0.01                          # pigeonhole 95th percentile of the meter excess
+  info0_max: 0.05
   control_ratio: 0.1
 seeds:
   boot: 20261993
@@ -50,5 +59,25 @@ seeds:
   signal: 20261992
 n_boot: 1000
 n_sim: 200
+direct:                                      # direct meters (amendment 1, review 2 item 1), scripts/fv_s_ridge.py
+  kinds: [eye, pre]
+  salt: FV-S
+  folds: 3
+  l2_grid: [1.0e-3, 1.0e-2, 1.0e-1, 1.0, 10.0]   # widened 2026-10-20: subject 1 chose the old edge 0.1 in all four heads (CV still falling)
+  maxiter: 300
+c2:                                          # D-119 section 3, amendment 1 I
+  inputs: data/cache/fv_s/c2_inputs.npz      # fv_s.py --stage c2prep (sha256 beside it)
+  pool_text_glob: results/runs/*_fv_lang_embed/pool_text.npy
+  test_conditions: ['dec|ses123|avg20', 'shuf|ses123|avg20', 'dec|ses123|noise', 'dec|ses123|phase', 'noeeg', 'dec|k0|avg20']
+  n_tok: 4
+  batch: 32
+  micro_batches: 4
+  grad_checkpointing: true
+  lr: 1.0e-3
+  weight_decay: 0.01
+  steps: [1000, 2000, 4000]                  # candidates; chosen by the development Q4 statistic
+  seed: 20261995
+  gen_batch: 64
+  max_new_tokens: 48
 out_dir: results/fv_s
 cache_dir: data/cache/fv_s

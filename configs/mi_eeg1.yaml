@@ -1,0 +1,40 @@
+# D-120 (direction 2, multi-image, family F-X): THINGS-EEG1 group-average decoder and the D-115 pair test on independent data.
+# scripts/mi_eeg1_prep.py (server gpuq CPU) -> scripts/mi_eeg1_train.py (k3s admin rtx5080-16g) -> scripts/mi_eeg1_pairs.py
+# --stage ridge | gate (server gpuq CPU) -> --stage infer (k3s rtx5080-16g) -> --stage verdict (server gpuq CPU, once).
+raw_root: data/raw/things_eeg1                # symlink -> /mnt/data/eeg_datasets/things_eeg1 (ds003825 v1.2.0, CC0)
+cache_dir: data/cache/things_eeg1
+train_config: configs/fv_train.yaml           # meta (EEG2 training photos), targets (ViT-H-14 train_image, names P1), dev / valid salts, model.bm, optim
+pairs_config: configs/fv_pairs.yaml           # D-115 pairs (main, maxmargin), holdout predictors, clip_img, rules
+out_dir: results/mi_eeg1
+smoke: false
+subjects_exclude_column: exclude              # participants.tsv: keep exclude == 0 (46 subjects)
+events:
+  onset_marker: 'E  1'                        # stimulus onset marker in the derivative .set; k-th marker <-> k-th events.tsv row
+  max_offset_samples: 1.0                     # |latency - 1 - onset / 4| < 1 sample (onset in 1 kHz samples, latency 1-based at 250 Hz)
+epoch:
+  sfreq: 250
+  tmin: -0.1                                  # baseline -0.1 .. 0 s (mean subtracted)
+  tmax: 1.0                                   # exclusive: 275 samples, -0.100 .. 0.996 s
+  input_tmin: 0.0                             # model input 0.000 .. 0.996 s (250 samples)
+  n_times: 250
+whiten:
+  shrinkage: ledoit_wolf                      # per-epoch Ledoit-Wolf covariance (-0.1 .. 1.0 s) of the training-concept group means, averaged; W = cov^(-1/2)
+model:
+  n_in: 64                                    # bm input channels (EEG1 derivative: 64 incl. Cz, FCz)
+seeds:
+  decoder: [20262001, 20262002]
+  shuffle_perm: 20262003                      # concept permutation of the label-shuffle model (fv_train shuffled_rows rule)
+  shuffle_train: 20262001
+  boot: 20262011                              # verdict: per draw 46 subjects then the concepts with pairs, both with replacement
+  noise: 20262012
+  phase: 20262013
+  sim: 20262121                               # gate simulations (as D-115)
+ridge:
+  alphas: [1.0e+0, 1.0e+1, 1.0e+2, 1.0e+3, 1.0e+4, 1.0e+5, 1.0e+6, 1.0e+7]   # chosen by the 146-way validation concept-row name MRP (ties: larger)
+n_boot: 1000
+n_sim: 1000
+n_calib: 20
+calib_bisect: 40
+infer:
+  batch: 500
+smoke_subjects: [2, 3]                         # smoke only: two subjects, synthetic-free real EEG of training concepts, never reported

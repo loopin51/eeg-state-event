@@ -1,4 +1,4 @@
-# F-V EEG-free gates G0 and 0-V (D-111; definitions: reports/fv_stage/notes/fv_gate_g0_0v_draft_kr.md, 30e1cb4, moved to D-112).
+# F-V EEG-free gates G0 and 0-V (D-111; definitions: reports/08_fv_stage/notes/fv_gate_g0_0v_draft_kr.md, 30e1cb4, moved to D-112).
 # scripts/fv_embed.py (k3s RTX 5080) writes the embeddings; scripts/fv_gate.py (server gpuq CPU job) computes the gates.
 images: data/raw/things_eeg2/image_set          # training_images/<NNNNN_id>/*.jpg (1,654 x 10), test_images/<NNNNN_id>/*.jpg (200 x 1)
 n_train: [1654, 16540]                         # concepts, images

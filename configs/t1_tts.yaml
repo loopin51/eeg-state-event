@@ -1,5 +1,5 @@
 # D-104 T1 (text-candidate identification): fixed public TTS, rendering rules and the stimulus gate 0-T (EEG-free).
-# Committed before any 0-T number is computed. Criteria text: reports/fiii_stage/notes/t1_criteria_draft_kr.md (for D-105).
+# Committed before any 0-T number is computed. Criteria text: reports/06_fiii_stage/notes/t1_criteria_draft_kr.md (for D-105).
 b1_config: configs/stageB_b1.yaml          # run folds, query definition, window, feature normalisation (RunData)
 
 tts:

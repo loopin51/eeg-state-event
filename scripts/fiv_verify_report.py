@@ -1,4 +1,4 @@
-"""Fact-check the numbers of reports/fiv_stage/fiv_stage_report.tex (eeg-dir3 scope) against result files.
+"""Fact-check the numbers of reports/07_fiv_stage/07_fiv_stage_report.tex (eeg-dir3 scope) against result files.
 
 Scope (coordinator request): abstracts, sections 1, 2.1, 2.2, 2.4, 3.1, 3.2, 3.5, 3.6, 4, 5, appendices B and C, and the
 figure captions 1-3. UGR sections 2.3, 3.3, 3.4 and figure 4 are checked by eeg-a4. No new computation: values are
@@ -12,7 +12,7 @@ Usage: python scripts/fiv_verify_report.py GPUQ_DUMP.json OUT.json [TEX_COPY]
 """
 import hashlib, json, re, sys
 
-TEX = sys.argv[3] if len(sys.argv) > 3 else 'reports/fiv_stage/fiv_stage_report.tex'   # optional frozen copy of the draft
+TEX = sys.argv[3] if len(sys.argv) > 3 else 'reports/07_fiv_stage/07_fiv_stage_report.tex'   # optional frozen copy of the draft
 lines = open(TEX, encoding='utf-8').read().split('\n')
 # scope by markers (the draft is still being edited, so line numbers are found at run time)
 MARK = [('\\begin{koabstract}{국문 초록}', '초록', 1), ('\\section{서론}', '1절', 1), ('\\section{방법}', None, 0),
@@ -124,7 +124,7 @@ C('U1 합친 p', '$p = 0.598$', f"$p = {u1['primary']['p']:.3f}$", 'u1.json prim
 oe = u1['report_single_session_odd_even']
 C('홀짝 분할 양수', '9명 모두', f"{sum(v['D_uv'] > 0 for v in oe.values())}명 모두" if all(v['D_uv'] > 0 for v in oe.values()) else '일부', 'u1.json report_single_session_odd_even')
 C('P100 p', '(P100\n$p = 0.001$', f"(P100\n$p = {u1['report_p100']['p']:.3f}$", 'u1.json report_p100.p')
-FIG = open('reports/fiv_stage/make_figures.py', encoding='utf-8').read().split('\n')
+FIG = open('reports/07_fiv_stage/make_figures.py', encoding='utf-8').read().split('\n')
 FIGC = []
 
 

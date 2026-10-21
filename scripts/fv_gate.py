@@ -1,4 +1,4 @@
-"""F-V EEG-free gates G0 and 0-V (D-111, D-112; definitions: reports/fv_stage/notes/fv_gate_g0_0v_draft_kr.md). No EEG.
+"""F-V EEG-free gates G0 and 0-V (D-111, D-112; definitions: reports/08_fv_stage/notes/fv_gate_g0_0v_draft_kr.md). No EEG.
 
 stage lowlevel: low-level image features of every THINGS-EEG2 image (M1 CIELAB thumbnail, M2 CIELAB histogram, M3 L* mean
                 and sd, M4 Gabor energy, A4 edge density) -> <embed_out>/lowlevel.npz, and the matched sets of the 200 test

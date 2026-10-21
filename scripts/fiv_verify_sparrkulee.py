@@ -1,4 +1,4 @@
-"""Fact-check reports/fiv_stage/notes/sparrkulee_audit_kr.md (eeg-a4) against cache metadata and the RDR file list.
+"""Fact-check reports/07_fiv_stage/notes/sparrkulee_audit_kr.md (eeg-a4) against cache metadata and the RDR file list.
 
 Reads only metadata (no EEG values): data/cache/sparrkulee/eeg_meta.json, stimuli.json,
 data/raw/sparrkulee/_meta.json and results/d099_ext/weights.json. Prints the recomputed values.

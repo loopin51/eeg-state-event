@@ -2,8 +2,8 @@
 
 Reads results/runs/*_c1_P2_pretrain_s*_{hours,sqrt,mixed}/history.json only (no training, no GPU). The decision rule
 (r = post-best mean rise / pre-best 600-update improvement, f_pre, post-best slope, train-loss change; thresholds 0.25 and
-0.10) was committed before the trajectories were read (reports/fii_stage/notes/pretrain_history_kr.md section 1, 6a854ef).
-Output: results/fii_stage/pretrain_history.json and reports/fii_stage/figures/fig6_pretrain_history.{pdf,png}.
+0.10) was committed before the trajectories were read (reports/05_fii_stage/notes/pretrain_history_kr.md section 1, 6a854ef).
+Output: results/fii_stage/pretrain_history.json and reports/05_fii_stage/figures/fig6_pretrain_history.{pdf,png}.
 
 usage: python scripts/fii_pretrain_history.py
 """
@@ -80,7 +80,7 @@ def main():
 
 
 def figure(runs):
-    sys.path.insert(0, os.path.join(ROOT, 'reports/fii_stage'))
+    sys.path.insert(0, os.path.join(ROOT, 'reports/05_fii_stage'))
     import style
     import matplotlib.pyplot as plt
     style.apply()
@@ -100,7 +100,7 @@ def figure(runs):
     for c in CANDS: ax[0].plot([], [], color=col[c], lw=1.0, label=c)
     ax[0].plot([], [], color=style.CHANCE, lw=0.6, ls='--', label='우연 ln 256')
     ax[0].legend(loc='lower left')
-    style.save(fig, os.path.join(ROOT, 'reports/fii_stage/figures/fig6_pretrain_history.pdf'))
+    style.save(fig, os.path.join(ROOT, 'reports/05_fii_stage/figures/fig6_pretrain_history.pdf'))
 
 
 if __name__ == '__main__':

@@ -4,9 +4,14 @@ Same features and penalty rule as scripts/fv_ridge.py (de, time, eye, pre; group
          sessions 1-4, the rows of the D-115 decoder outputs)
   test : fit on sessions 1-3, all training concepts; predict the session-4 test images (mean of every session-4 repetition, as V1
          avg20). The test epochs are read again from the raw files (sha256 against the seal table) for the pre-stimulus window.
+Direct meters (D-119 amendment 1, review 2 item 1): for the eye and pre features, softmax linear classifiers from the standardised
+features straight to the labels (colour: 11 pixel fractions, category: 1/|L| over the 18 classes), L2 penalty by 3-fold concept CV
+(salt FV-S) in dev mode, the same penalty in test mode -> logits dev_direct_<kind>_<col|cat> [2000, K], test_direct_<kind>_<col|cat> [200, K].
+The session-4 test raw file is opened only with --unseal (sha256 against the seal table; D-119 amendment 1: this baseline job computes
+no decoder score).
 Output per subject: data/cache/fv_s/ridge_tXX.npz (dev_<kind> [2000, 1024], test_<kind> [200, 1024], raw ridge outputs, not
 L2-normalised; dev_rows = training codes - 1) and results/fv_s/ridge_manifest.json (sha256, alphas, seconds).
-usage: python scripts/fv_s_ridge.py configs/fv_s.yaml [--subjects 1 2 ...]
+usage: python scripts/fv_s_ridge.py configs/fv_s.yaml --unseal [--subjects 1 2 ...]
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
@@ -31,7 +36,10 @@ def peak_gb():
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--subjects', type=int, nargs='+'); a = ap.parse_args()
+    ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--subjects', type=int, nargs='+'); ap.add_argument('--unseal', action='store_true'); a = ap.parse_args()
+    assert a.unseal, 'this job re-opens the session-4 test raw files: pass --unseal (D-119 amendment 1)'
+    from fv_s import Setup, fit_softmax, ce, salt_folds
+    st = Setup(yaml.safe_load(open(P(a.config)))); dm = yaml.safe_load(open(P(a.config)))['direct']
     c = yaml.safe_load(open(P(a.config))); tc = yaml.safe_load(open(P(c['train_config']))); vc = yaml.safe_load(open(P('configs/fv_verdict.yaml')))
     pc = yaml.safe_load(open(P(tc['prep_config']))); cache = P(pc['cache_dir']); root = P(pc['data_root']); meta = Meta(P(tc['meta'])); fs = pc['epoch']['sfreq']
     from ese.things import preprocess as PP
@@ -56,10 +64,28 @@ def main():
             fc, FX, _ = image_means(cache, s, [1, 2, 3], fit_codes, tsel)
             for kind in kinds:
                 pred, al, _ = ridge_cv(features(kind, FX, ch, fs), Timg[fc - 1], grp(fc, fold_dev)); out[f'dev_{kind}'] = pred(features(kind, DX, ch, fs)).astype(np.float32); alph[f'dev_{kind}'] = al; del pred
+            l2d = {}
+            for kind in [k for k in kinds if k in dm['kinds']]:
+                Xf = features(kind, FX, ch, fs).astype(np.float64); xm, xs = Xf.mean(0), Xf.std(0) + 1e-8; Xf = (Xf - xm) / xs; Xd = (features(kind, DX, ch, fs) - xm) / xs
+                cf = [meta.train_concepts[meta.img_concept[k - 1]] for k in fc]; ff = dict(zip(sorted(set(cf)), salt_folds(sorted(set(cf)), dm['salt'], dm['folds']))); g = np.array([ff[x] for x in cf])
+                for hd in ('col', 'cat'):
+                    keep = np.ones(len(fc), bool) if hd == 'col' else st.has_cat[st.img_name[fc - 1]]
+                    Y = st.frac[fc - 1] if hd == 'col' else st.Ycat_name[st.img_name[fc - 1]]
+                    cv = [float(np.mean([ce(Xf[keep & (g == f)] @ W + b, Y[keep & (g == f)]) for f in range(dm['folds'])
+                                         for W, b, _ in [fit_softmax(Xf[keep & (g != f)], Y[keep & (g != f)], l2, dm['maxiter'])]])) for l2 in dm['l2_grid']]
+                    l2 = dm['l2_grid'][int(np.argmin(cv))]; W, b, _ = fit_softmax(Xf[keep], Y[keep], l2, dm['maxiter']); out[f'dev_direct_{kind}_{hd}'] = (Xd @ W + b).astype(np.float32)
+                    l2d[f'{kind}_{hd}'] = l2; alph[f'direct_{kind}_{hd}_cv'] = cv; alph[f'direct_{kind}_{hd}_l2'] = l2
+                del Xf, Xd
             del FX
             fc, FX, _ = image_means(cache, s, [1, 2, 3], all_codes, tsel)
             for kind in kinds:
                 pred, al, _ = ridge_cv(features(kind, FX, ch, fs), Timg[fc - 1], grp(fc, fold_all)); out[f'test_{kind}'] = pred(features(kind, full20[..., tsel], ch, fs)).astype(np.float32); alph[f'test_{kind}'] = al; del pred
+            for kind in [k for k in kinds if k in dm['kinds']]:
+                Xf = features(kind, FX, ch, fs).astype(np.float64); xm, xs = Xf.mean(0), Xf.std(0) + 1e-8; Xf = (Xf - xm) / xs; Xt = (features(kind, full20[..., tsel], ch, fs) - xm) / xs
+                for hd in ('col', 'cat'):
+                    keep = np.ones(len(fc), bool) if hd == 'col' else st.has_cat[st.img_name[fc - 1]]; Y = st.frac[fc - 1] if hd == 'col' else st.Ycat_name[st.img_name[fc - 1]]
+                    W, b, _ = fit_softmax(Xf[keep], Y[keep], l2d[f'{kind}_{hd}'], dm['maxiter']); out[f'test_direct_{kind}_{hd}'] = (Xt @ W + b).astype(np.float32)
+                del Xf, Xt
             del FX, DX
             print(f'sub-{s:02d} {w}: done ({time.time() - t1:.0f}s, peak {peak_gb():.1f} GB)', flush=True)
         f = os.path.join(od, f'ridge_t{s:02d}.npz'); np.savez(f, dev_rows=dev_codes - 1, **out)

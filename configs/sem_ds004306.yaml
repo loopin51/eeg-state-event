@@ -1,0 +1,50 @@
+# F-XI (D-121): cross-modal transfer of concept information in ds004306 (Wilson et al. 2023; pictorial / orthographic / audio,
+# perception and imagination, concepts penguin / guitar / flower). Rules fixed before any label-based score.
+raw_root: data/raw/ds004306            # -> /mnt/data/eeg_datasets/ds004306 (OpenNeuro ds004306 v1.0.2, CC0)
+cache_dir: data/cache/ds004306
+out_dir: results/sem_ds004306
+baseline_out: results/baselines/sem_ds004306_de.json
+exclude_subjects: [sub-16]             # participants.tsv: vision and hearing impaired
+min_trials_per_condition: 30
+concepts: [penguin, guitar, flower]
+modalities: [image, t, a]              # pictorial, orthographic, audio (event codes)
+prep:
+  fs_raw: 1024
+  decim: 8                             # -> 128 Hz after the 40 Hz low-pass
+  band: [0.1, 40.0]
+  chunk_channels: 16
+  bad_mad: 5.0                         # robust z of the log variance -> spherical spline interpolation
+  montage: standard_1005
+  reject_ptp_uv: 300.0
+  perc_epoch: [-0.5, 1.0]
+  perc_baseline: [-0.2, 0.0]
+  perc_window: [0.15, 1.0]
+  pre_window: [-0.5, 0.0]              # meter P, no baseline correction
+  gfp_windows: [[0.15, 0.35], [0.35, 0.55], [0.55, 0.75], [0.75, 1.0]]
+  imag_epoch: [-0.2, 4.0]
+  imag_baseline: [-0.2, 0.0]
+  imag_window: [0.5, 3.5]
+  de_bands: [[1, 4], [4, 8], [8, 13], [13, 30], [30, 40]]
+  phase_seed: 20261213
+classifier:
+  lda_shrinkage: auto                  # Ledoit-Wolf
+  lr_C: 1.0
+n_perm: 1000
+n_boot: 1000
+seeds: {perm: 20261210, boot: 20261214, shuffle_model: 20261215, noise: 20261216, info0: 20261211, power: 20261212}
+sesoi: 0.02
+alpha: 0.05                            # Holm over H1, H2
+meter_max: 0.01
+sim:
+  info0_reps: 200
+  info0_perm: 1000                     # same permutation count as the verdict
+  power_deltas: [0.01, 0.02, 0.03, 0.04, 0.06]   # per-feature N(0,1) pattern entries x delta on z-scored features
+  power_reps: 100
+  power_perm: 1000
+  power_target: 0.04
+abstain:
+  min_precision: 0.5
+  min_coverage: 0.10
+  sentence: "떠올린 대상은 {name}입니다."
+  abstain_sentence: "판단할 근거가 부족합니다."
+  names_ko: {penguin: 펭귄, guitar: 기타, flower: 꽃}

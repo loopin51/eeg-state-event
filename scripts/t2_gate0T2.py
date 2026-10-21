@@ -1,4 +1,4 @@
-"""D-108 / D-109 T2 stimulus gate 0-T2 (no EEG; configs/t2_gate0T2.yaml, rules reports/fiv_stage/notes/t2_gate0T2_draft_kr.md).
+"""D-108 / D-109 T2 stimulus gate 0-T2 (no EEG; configs/t2_gate0T2.yaml, rules reports/07_fiv_stage/notes/t2_gate0T2_draft_kr.md).
 
 Queries are the B1 test queries with a valid af_heart TTS window (as 0-T). The text unit U(q) is the words with heard onsets in
 [t - 0.5, t + 2.5). Matching attributes: word count, letters, syllables (n_syl) and the TTS speech time of U (VAD frames between

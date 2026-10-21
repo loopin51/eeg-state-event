@@ -1,4 +1,4 @@
-# D-108 T2 stimulus gate 0-T2 (EEG-free). Rules: reports/fiv_stage/notes/t2_gate0T2_draft_kr.md (24259be, 3a396e9) -> D-109.
+# D-108 T2 stimulus gate 0-T2 (EEG-free). Rules: reports/07_fiv_stage/notes/t2_gate0T2_draft_kr.md (24259be, 3a396e9) -> D-109.
 # Written before any 0-T2 number (candidate counts, MRP, meters) is computed.
 t1_config: configs/t1_tts.yaml              # b1_config, TTS cache (af_heart rendering, w2v xlsr-53 14-18), windows of 0-T
 voice: af_heart
