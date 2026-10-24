@@ -92,8 +92,18 @@ def process(c, sub, ses, fdt, chtsv, evtsv, smoke=False):
     D = filt_decim(fdt, nch, pnts, eeg + eog, pc['band'], pc['fs_raw'], pc['decim'], pc['chunk_channels'])
     E, O = D[:len(eeg)], D[len(eeg):]
     sp = np.array([t['sp'] for t in tr]) // pc['decim']; si = np.array([t['si'] for t in tr]) // pc['decim']
-    lo, hi = max(0, sp.min() - int(5 * fs)), min(E.shape[1], si.max() + int(5 * fs))
-    lv = np.log(E[:, lo:hi].var(1)); mad = np.median(np.abs(lv - np.median(lv))) * 1.4826
+    # amendment 2 (D-121): flat raw signal (median EEG-channel ptp < flat_uv over the epoch) -> trial unusable (sub-010 is flat from 1464 s)
+    Xr = np.memmap(fdt, dtype='<f4', mode='r', shape=(pnts, nch))
+    def flat(s0, ew):
+        a, b = s0 + int(ew[0] * pc['fs_raw']), s0 + int(ew[1] * pc['fs_raw'])
+        seg = np.asarray(Xr[max(a, 0):b][:, eeg]); return np.median(seg.max(0) - seg.min(0)) < pc['flat_uv']
+    p_flat = np.array([flat(t['sp'], pc['perc_epoch']) for t in tr]); i_flat = np.array([flat(t['si'], pc['imag_epoch']) for t in tr])
+    live = ~(p_flat | i_flat); assert live.sum() > 0
+    lo, hi = max(0, sp[live].min() - int(5 * fs)), min(E.shape[1], si[live].max() + int(5 * fs))
+    wins = np.zeros(E.shape[1], bool)
+    for a_, b_ in zip(sp[live], si[live]):
+        wins[a_ + int(pc['perc_epoch'][0] * fs):b_ + int(pc['imag_epoch'][1] * fs)] = True
+    lv = np.log(E[:, wins].var(1)); mad = np.median(np.abs(lv - np.median(lv))) * 1.4826
     bad = [names[eeg[i]] for i in np.flatnonzero(np.abs(lv - np.median(lv)) / (mad + 1e-12) > pc['bad_mad'])]
     E0 = E
 
@@ -104,12 +114,16 @@ def process(c, sub, ses, fdt, chtsv, evtsv, smoke=False):
             raw.interpolate_bads(reset_bads=True, verbose=False)
         raw.set_eeg_reference('average', verbose=False); return raw.get_data()
     E = clean(bad)
-    scale = 1.0 if np.median(np.abs(E[:, lo:hi])) > 0.05 else 1e6          # to microvolts (EEGLAB data are usually in uV)
-    # amendment 1 (D-121): channels exceeding the ptp limit in more than bad_epoch_frac of all epochs are added and interpolated
+    scale = 1.0 if np.median(np.abs(E[:, wins])) > 0.05 else 1e6          # to microvolts (EEGLAB data are usually in uV)
+    # amendment 1 (D-121): channels exceeding the ptp limit in more than bad_epoch_frac of the signal-bearing epochs are added and
+    # interpolated; amendment 2: at most bad_epoch_max channels, otherwise none are added (a global artefact, not a channel)
     frac = np.zeros(len(eeg)); nep = 0
-    for smp, ew in ((sp, pc['perc_epoch']), (si, pc['imag_epoch'])):
+    for smp, ew in ((sp[live], pc['perc_epoch']), (si[live], pc['imag_epoch'])):
         ep_, _ = epochs(E * scale, smp, ew[0], ew[1], fs); frac += ((ep_.max(-1) - ep_.min(-1)) > pc['reject_ptp_uv']).sum(0); nep += len(smp)
     bad2 = [names[eeg[i]] for i in np.flatnonzero(frac / nep > pc['bad_epoch_frac']) if names[eeg[i]] not in bad]
+    bad2_skipped = []
+    if len(bad2) > pc['bad_epoch_max']:
+        bad2_skipped, bad2 = bad2, []
     if bad2:
         bad = bad + bad2; E = clean(bad)
     E = E * scale; O = O * scale
@@ -119,7 +133,7 @@ def process(c, sub, ses, fdt, chtsv, evtsv, smoke=False):
     for cond, smp, ew, bw, ww in (('p', sp, pc['perc_epoch'], pc['perc_baseline'], pc['perc_window']),
                                   ('i', si, pc['imag_epoch'], pc['imag_baseline'], pc['imag_window'])):
         ep, t = epochs(E, smp, ew[0], ew[1], fs); eo, _ = epochs(O, smp, ew[0], ew[1], fs)
-        ok = (ep.max(-1) - ep.min(-1)).max(1) <= pc['reject_ptp_uv']
+        ok = ((ep.max(-1) - ep.min(-1)).max(1) <= pc['reject_ptp_uv']) & ~(p_flat if cond == 'p' else i_flat)
         b = sl(t, bw); w = sl(t, ww)
         epb = ep - ep[..., b].mean(-1, keepdims=True); eob = eo - eo[..., b].mean(-1, keepdims=True)
         out[f'{cond}_ok'] = ok
@@ -135,7 +149,10 @@ def process(c, sub, ses, fdt, chtsv, evtsv, smoke=False):
             gfp = epb.std(1)
             out['p_gfp'] = np.stack([gfp[:, sl(t, g)].mean(-1) for g in pc['gfp_windows']], 1).astype(np.float32)
             out['p_ep'] = epb.astype(np.float32); out['p_t'] = t
-    meta = dict(sub=sub, ses=ses, n_trials=len(tr), bad=bad, bad_from_epochs=bad2, scale=scale, pnts=int(pnts), fs=fs, seconds=round(time.time() - t0, 1),
+            if pc.get('save_eog_epochs'):
+                out['p_eog_ep'] = eob.astype(np.float32)       # D-123: window-specific ocular meter
+    meta = dict(sub=sub, ses=ses, n_trials=len(tr), bad=bad, bad_from_epochs=bad2, bad_epoch_rule_skipped=bad2_skipped,
+                p_flat=int(p_flat.sum()), i_flat=int(i_flat.sum()), scale=scale, pnts=int(pnts), fs=fs, seconds=round(time.time() - t0, 1),
                 p_rejected=int((~out['p_ok']).sum()), i_rejected=int((~out['i_ok']).sum()),
                 counts={f'{cd}_{m}': int(((out['modality'] == mi) & out[f'{cd}_ok']).sum()) for cd in 'pi' for mi, m in enumerate(c['modalities'])})
     return out, meta
@@ -149,8 +166,12 @@ def sessions(c):
             continue
         ev = glob.glob(os.path.join(sd, 'eeg', '*_events.tsv')); ch = glob.glob(os.path.join(sd, 'eeg', '*_channels.tsv'))
         n = int(sub.split('-')[1]); s = int(ses.split('-')[1])
-        fd = glob.glob(os.path.join(root, 'derivatives', 'fdt_files', f'sub{n:02d}_sess-{s:02d}', f'sub{n:02d}_sess{s:02d}.fdt'))
-        if len(ev) == 1 and len(ch) == 1 and len(fd) == 1:
+        fd = glob.glob(os.path.join(root, 'derivatives', 'fdt_files', f'sub{n:02d}_sess-{s:02d}', '*.fdt'))
+        st = glob.glob(os.path.join(sd, 'eeg', '*_eeg.set'))
+        if len(ev) == 1 and len(ch) == 1 and len(fd) == 1 and len(st) == 1:
+            from scipy.io import loadmat                 # file names inside fdt_files are not reliable (sub13 holds 'sub12_sess01.fdt')
+            h = loadmat(st[0], squeeze_me=True, variable_names=['nbchan', 'pnts'])
+            assert int(h['nbchan']) * int(h['pnts']) * 4 == os.path.getsize(fd[0]), (sub, ses, fd[0])
             res.append((sub, ses, fd[0], ch[0], ev[0]))
         else:
             res.append((sub, ses, None, None, None))

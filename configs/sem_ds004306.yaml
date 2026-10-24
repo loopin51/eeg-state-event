@@ -17,6 +17,8 @@ prep:
   montage: standard_1005
   reject_ptp_uv: 300.0
   bad_epoch_frac: 0.05                 # amendment 1: channel over the ptp limit in > 5% of epochs -> interpolated
+  bad_epoch_max: 31                    # amendment 2: 25% of 124; more flagged channels -> none added (global artefact)
+  flat_uv: 0.5                         # amendment 2: raw median EEG-channel ptp below this over the epoch -> flat trial excluded
   perc_epoch: [-0.5, 1.0]
   perc_baseline: [-0.2, 0.0]
   perc_window: [0.15, 1.0]

@@ -36,7 +36,8 @@ def lw_cov(X):
     n, d = X.shape; S = X.T @ X / n; mu = np.trace(S) / d
     X2 = X ** 2; b2 = ((X2.T @ X2) / n - S ** 2).sum() / n
     d2 = ((S - mu * np.eye(d)) ** 2).sum(); sh = min(b2, d2) / d2 if d2 > 0 else 1.0
-    return (1 - sh) * S + sh * mu * np.eye(d)
+    C = (1 - sh) * S + sh * mu * np.eye(d)
+    return C + 1e-6 * (mu if mu > 0 else 1.0) * np.eye(d)   # numerical guard: a flat channel gives a zero row (EOG, job 706)
 
 
 def lda_fit(X, y):
@@ -366,6 +367,8 @@ def main():
         return
     Dsub = load_subjects(c)
     if a.stage == 'sim':
+        for D in Dsub.values():
+            D.pop('p_ep')                                   # epochs are used only by the report items of the verdict
         sc = c['sim']; rng = np.random.default_rng(sd['info0']); out = dict(stage='sim', subjects=sorted(Dsub), info0=[], power={})
         t0 = time.time()
         for r in range(sc['info0_reps']):

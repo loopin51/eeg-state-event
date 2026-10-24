@@ -226,7 +226,9 @@ def stage_verdict(x, a):
     M1 = dict(A=A['dec'], A_ref=ah, baseline=base, D=D, lower=lo, passed=bool(lo > 0 and D >= rl['k1_min']))
     J = {kind: dict(A=A[kind], **V.control_rule(np.array([A[kind] - 0.5]), Aboot(SS[kind]) - 0.5, A['dec'] - 0.5, rl['control_ratio'], rl['control_lower_pct'])) for kind in ('shuffle', 'noise', 'phase')}
     adopted = bool(M1['passed'] and all(v['passed'] for v in J.values()))
-    rep = {}
+    rep = dict(intervals95={kind: [float(np.percentile(Aboot(SS[kind]), 2.5)), float(np.percentile(Aboot(SS[kind]), 97.5))] for kind in KINDS},
+               intervals95_H={h: [float(np.percentile((Cc @ SH[h][k]) / den, 2.5)), float(np.percentile((Cc @ SH[h][k]) / den, 97.5))] for h in ('H_a', 'H_b')},
+               D_interval90=[float(np.percentile(db, 5)), float(np.percentile(db, 95))])
     dr = Aboot(SS['dec']) - Aboot(SS['ridge'])
     rep['r1_ridge'] = dict(A=A['ridge'], D=A['ridge'] - base, dec_minus_ridge_A=A['dec'] - A['ridge'], lo95=float(np.percentile(dr, 2.5)), hi95=float(np.percentile(dr, 97.5)))
     nf = np.array([st.dev_c.index(pr['raw']['pairs'][q]['foil_concept']) for q in range(len(pr['I']))]); ii = [st.pos[int(i)] for i in pr['I']]
