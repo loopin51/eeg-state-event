@@ -61,11 +61,13 @@ def trials_from_events(path):
     return out
 
 
-def ugr_session(c, edf, events, words):
+def ugr_session(c, edf, events, words, key):
     import mne
     u = c['ugr']; t0 = time.time()
     raw = mne.io.read_raw_edf(edf, preload=True, verbose=False)
-    raw.set_channel_types({e: 'eog' for e in u['eog']}, verbose=False)
+    no_eog = u.get('no_eog_sessions', {}).get(key)            # D-125 amendment 2: EOG slots labelled otherwise -> drop, no ICA
+    if no_eog: assert not set(u['eog']) & set(raw.ch_names), key; raw.drop_channels(no_eog)
+    else: raw.set_channel_types({e: 'eog' for e in u['eog']}, verbose=False)
     fs0 = raw.info['sfreq']; assert fs0 == 1000.0, fs0
     raw.notch_filter(u['notch_hz'], picks='all', verbose=False)
     raw.filter(*u['band_hz'], picks='all', phase='zero', fir_design='firwin', verbose=False)
@@ -76,8 +78,10 @@ def ugr_session(c, edf, events, words):
     eeg = mne.pick_types(hp.info, eeg=True); sd = hp.get_data(picks=eeg).std(1); med = np.median(sd)
     picks = [int(i) for i, v in zip(eeg, sd) if v <= ic['channel_sd_factor'] * med]
     log = dict(edf=os.path.basename(edf), ica_left_out=[hp.ch_names[i] for i in eeg if i not in picks])
+    if no_eog: log.update(dropped=no_eog, ica_error='no EOG channels in this session (D-125 amendment 2)')
     ica = mne.preprocessing.ICA(n_components=min(ic['n_components'], len(picks) - 1), method=ic['method'], random_state=c['seed'], max_iter='auto')
     try:
+        if no_eog: raise RuntimeError('no EOG channels')
         ica.fit(hp, picks=picks, reject=dict(eeg=ic['reject_p2p_uv'] * 1e-6), tstep=ic['tstep_s'], verbose=False)
         used = float(ica.n_samples_) / hp.info['sfreq']; log['ica_fit_seconds'] = round(used, 1)
         if used < ic['min_fit_s']: raise RuntimeError(f'only {used:.0f} s left for the ICA fit')
@@ -86,9 +90,10 @@ def ugr_session(c, edf, events, words):
         if bad: ica.apply(raw, verbose=False)
         else: log['ica_note'] = 'no EOG component selected; ICA not applied'
     except Exception as e:                                  # D-125 1.1: keep the session without ICA
-        log.update(ica_error=repr(e))
+        log.setdefault('ica_error', repr(e))
     del hp
-    raw.drop_channels(u['eog']); raw.set_eeg_reference('average', projection=False, verbose=False)
+    if not no_eog: raw.drop_channels(u['eog'])
+    raw.set_eeg_reference('average', projection=False, verbose=False)
     X = (raw.get_data() * 1e6).astype(np.float32); names = list(raw.ch_names)
     pre, post = int(round(u['pre_s'] * fs)), int(round(u['post_s'] * fs)); off = int(round(u['rest_offset_s'] * fs)); r = fs0 / fs
     wnorm = {norm(w): i for i, w in enumerate(words)}; wflat = {norm(w, False): i for i, w in enumerate(words)}
@@ -122,7 +127,7 @@ def ugr(c, subjects):
             ses = re.findall(r'(ses-\d+)', f)[0]
             ev = glob.glob(os.path.join(base, u['events_dir'], s, ses, 'eeg', '*_events.tsv')); assert len(ev) == 1, (s, ses, ev)
             h = check_sha(os.path.join(ROOT, u['sha256_list']), base, f)
-            keep, names, log = ugr_session(c, f, ev[0], words); log['sha256'] = h; logs[f'{s}_{ses}'] = log
+            keep, names, log = ugr_session(c, f, ev[0], words, f'{s}_{ses}'); log['sha256'] = h; logs[f'{s}_{ses}'] = log
             assert names0 is None or names == names0; names0 = names; keep['session'] = [ses] * len(keep['mode']); parts.append(keep)
             print(json.dumps({f'{s}_{ses}': log}), flush=True)
         cat = lambda k: [v for p in parts for v in p[k]]
@@ -133,7 +138,8 @@ def ugr(c, subjects):
                  ch_names=np.array(names0))
         logs[s] = dict(n=len(word), words_covered=len(covered))
         assert len(covered) == 60, f'{s}: only {len(covered)} of the 60 words matched (D-125 1.3 stop rule)'
-    json.dump(dict(categories=cats, words=words, sessions=logs), open(os.path.join(out, 'prep_log.json'), 'w'), indent=1, ensure_ascii=False)
+    lp = os.path.join(out, 'prep_log.json'); old = json.load(open(lp))['sessions'] if os.path.exists(lp) else {}   # partial reruns merge
+    json.dump(dict(categories=cats, words=words, sessions={**old, **logs}), open(lp, 'w'), indent=1, ensure_ascii=False)
 
 
 def bci2020(c, subjects):

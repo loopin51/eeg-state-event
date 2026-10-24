@@ -11,6 +11,7 @@ ugr:                                       # UGR-MINDVOICE (OSF 6sh5d), table 2
   sha256_list: data/raw/ugr_mindvoice.sha256
   exclude_subjects: [sub-15]               # excluded in the paper (ICA error)
   eog: [EOG1, EOG2]
+  no_eog_sessions: {sub-13_ses-01: [TP9, TP10]}   # D-125 amendment 2: EOG1/EOG2 slots carry these labels; dropped, session without ICA
   notch_hz: 50
   band_hz: [0.1, 75.0]                     # zero-phase FIR (MNE firwin default)
   sfreq: 200                               # resampled before ICA (linear ops commute; D-125 1.1 step 3)

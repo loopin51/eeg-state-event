@@ -70,6 +70,8 @@ class ReveClassifier(nn.Module):
         from ese.third_party.reve import Reve, ReveConfig
         from ese.third_party.reve.modeling_reve import RMSNorm
         r = c['reve']; self.enc = Reve(ReveConfig(**r['encoder'])); self.enc.load_state_dict(load_file(os.path.join(ROOT, r['weights'])), strict=True)
+        from ese.model.reve_readout import checkpointed
+        checkpointed(self.enc.transformer)               # per-layer activation checkpointing: memory only, same result (D-092)
         E = r['encoder']['embed_dim']; size, step = r['encoder']['patch_size'], r['encoder']['patch_size'] - r['encoder']['patch_overlap']
         P = (n_times - size) // step + 1; D = (n_chans * P + 1) * E; self.E = E
         self.head = nn.Sequential(RMSNorm(D), nn.Dropout(r['dropout']), nn.Linear(D, n_classes))
@@ -91,9 +93,10 @@ def build(arm_model, c, n_classes, names, n_chans, n_times, dev):
     if arm_model == 'eegnet':
         m = M.EEGNet(n_chans=n_chans, n_outputs=n_classes, n_times=n_times); return m.to(dev), (lambda net, xb: net(xb))
     # LaBraM: pretrained weights at their native length, temporal embedding cut to our patches (as scripts/extract_fm_features.py)
-    os.environ['HF_HUB_CACHE'] = os.path.join(ROOT, c['arms']['labram']['weights'], 'hub'); os.environ['HF_HUB_OFFLINE'] = '1'
+    snap = glob.glob(os.path.join(ROOT, c['arms']['labram']['weights'], 'hub', 'models--braindecode--labram-pretrained', 'snapshots', '*'))
+    assert len(snap) == 1, snap                          # staged HF snapshot folder (local files only, no hub request)
     chs = [{'ch_name': n} for n in names]
-    full = M.Labram.from_pretrained('braindecode/labram-pretrained', n_outputs=0, sfreq=200, n_chans=n_chans, chs_info=chs)
+    full = M.Labram.from_pretrained(snap[0], n_outputs=0, sfreq=200, n_chans=n_chans, chs_info=chs)
     m = M.Labram(n_outputs=n_classes, n_times=n_times, sfreq=200, n_chans=n_chans, chs_info=chs)
     sd, tgt = full.state_dict(), m.state_dict()
     for k, v in list(sd.items()):
@@ -136,7 +139,7 @@ def run_fold(c, a, arm, task, fold_i, tr, te, names, n_classes, dev, smoke):
             j = perm[i:i + B]
             if len(j) < 2: continue                          # BatchNorm needs two samples
             loss = ce(fwd(net, xtr_t[j].to(dev, non_blocking=True)), ytr_t[j].to(dev)); opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
-            tl += float(loss) * len(j)
+            tl += loss.item() * len(j)
         p = predict(net, fwd, xte, dev); s = scores(yte, p)
         hist.append(dict(epoch=ep, train_loss=tl / n, seconds=round(time.time() - t0, 1), **s))
         if s[key] > best: best, best_ep, best_pred, bad = s[key], ep, p, 0
