@@ -9,7 +9,7 @@ early stopping with patience 10 on the held-out subject / validation split (accu
 BCI2020) as in the paper, and the best epoch's predictions are scored. EEGNet gets per-epoch per-channel z-scored input,
 the foundation models microvolts / 100. REVE: official classifier head (pooling "no": attention context from the
 pretrained query token concatenated with all tokens, RMSNorm, dropout 0.3, linear); inputs padded with zeros to whole
-seconds. Writes results/runs/<date>_rs_<arm>_<task>/ (config.yaml, metrics.json, history.json, preds.npz).
+seconds (LaBraM likewise, D-125 amendment 3). Writes results/runs/<date>_rs_<arm>_<task>/ (config.yaml, metrics.json, history.json, preds.npz).
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
@@ -55,8 +55,9 @@ def prepare(x, arm_model, c):
     if arm_model == 'eegnet':
         mu, sd = x.mean(-1, keepdims=True), x.std(-1, keepdims=True); return ((x - mu) / np.maximum(sd, 1e-6)).astype(np.float32)
     x = (x / c['train']['fm_scale']).astype(np.float32)
-    if arm_model == 'reve':
-        m = c['reve']['pad_to_multiple']; T = x.shape[-1]; P = -T % m
+    m = {'reve': c['reve']['pad_to_multiple'], 'labram': c['arms']['labram'].get('pad_to_multiple')}.get(arm_model)
+    if m:                                                # whole patches: zeros at the end (LaBraM: D-125 amendment 3)
+        P = -x.shape[-1] % m
         if P: x = np.concatenate([x, np.zeros(x.shape[:-1] + (P,), np.float32)], -1)
     return x
 

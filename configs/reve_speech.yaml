@@ -54,7 +54,8 @@ train:                                     # paper 2.4
 
 arms:
   eegnet: {model: eegnet}                  # braindecode EEGNet defaults, per-epoch per-channel z-score
-  labram: {model: labram, weights: data/raw/labram_weights}       # braindecode/labram-pretrained (HF cache copy)
+  labram: {model: labram, weights: data/raw/labram_weights,       # braindecode/labram-pretrained (HF cache copy)
+           pad_to_multiple: 200}                                  # D-125 amendment 3: 200-sample patches, UGR 300 -> 400
   reve: {model: reve}
   reve_shuffle: {model: reve, shuffle_labels: true}               # labels permuted within each training subject
   reve_lr1e4: {model: reve, lr: 1.0e-4, tasks: [mode, cat, word]} # report-only sensitivity (UGR)
