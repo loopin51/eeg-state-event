@@ -1,0 +1,66 @@
+# D-128 step 1: label-free epoch caches for REVE-NC (scripts/nc_prep.py, docs/08 §3.1). No scores are computed.
+# Common chain for raw recordings: <line> Hz notch (iirnotch, Q 30, filtfilt) -> Butterworth 0.5-75 Hz (order 4,
+# sosfiltfilt) -> 200 Hz (resample_poly) -> common average over EEG channels (noise-reference channels are filtered
+# the same way but not re-referenced) -> bad-channel interpolation (bad_sd_hi/lo) -> epochs in microvolts.
+cache_dir: data/cache/nc
+sfreq: 200
+band_hz: [0.5, 75.0]
+butter_order: 4
+notch_q: 30
+positions: data/raw/reve_weights/reve-positions/positions.json   # every EEG channel must be in the REVE bank
+seed: 20261280
+# bad channels (per recording, before the common average; FACED is used as officially preprocessed)
+bad_sd_hi: 10.0
+bad_sd_lo: 0.1
+
+datasets:
+  physionet_mi:
+    raw: data/raw/physionet_mi
+    sha256_list: data/raw/physionet_mi.sha256
+    line_hz: 60
+    runs: {4: lr, 8: lr, 12: lr, 6: ff, 10: ff, 14: ff}       # lr: left/right fist, ff: both fists/both feet
+    labels: {lr: {T1: 0, T2: 1}, ff: {T1: 2, T2: 3}}           # 0 left fist, 1 right fist, 2 both fists, 3 both feet
+    null_event: T0                                             # rest between trials, same length as the task window
+    epoch_s: [0.0, 4.0]                                        # relative to the annotation onset (T1/T2 task, T0 null)
+    exclude_rule: {sfreq: 160, n_imagery_events: 90}           # docs/08 §3.1, fixed before any score
+    expect_excluded: [S088, S092, S100, S104]
+    windows: {task: {slice_s: [0.0, 4.0], rows: task}, null: {slice_s: [0.0, 4.0], rows: "null"}}
+    lowpass_hz: 75
+
+  cho2017:
+    raw: data/raw/cho2017
+    sha256_list: data/raw/cho2017.sha256
+    line_hz: 60
+    segment_s: [-2.0, 5.0]                 # the .mat arrays are 7 s trial segments cut around the cue and concatenated
+    segment_pad_s: 2.0                     # each segment is linearly detrended and filtered alone (odd extension, 2 s)
+    emg: [EMG1, EMG2, EMG3, EMG4]          # channels 65-68 (forearm EMG, Cho et al. 2017)
+    # Biosemi 64 channel order of the .mat files (MOABB Cho2017 list); checked against senloc in the script
+    eeg: [Fp1, AF7, AF3, F1, F3, F5, F7, FT7, FC5, FC3, FC1, C1, C3, C5, T7, TP7, CP5, CP3, CP1, P1, P3, P5, P7, P9, PO7,
+          PO3, O1, Iz, Oz, POz, Pz, CPz, Fpz, Fp2, AF8, AF4, AFz, Fz, F2, F4, F6, F8, FT8, FC6, FC4, FC2, FCz, Cz, C2, C4,
+          C6, T8, TP8, CP6, CP4, CP2, P2, P4, P6, P8, P10, PO8, PO4, O2]
+    noise_types: [eye_blink, eye_updown, eye_leftright, head_move, jaw_clench]   # eeg.noise order, Cho et al. 2017
+    # task 2 s after the cue, null = the 2 s fixation before the cue (same length, same segment; docs/08 §4.1 null rule).
+    # Same windows as BCI IV 2a (Lawhern et al. 2018 EEGNet window).
+    windows: {task: {slice_s: [0.5, 2.5], rows: task}, null: {slice_s: [-2.0, 0.0], rows: task}}
+    lowpass_hz: 75
+
+  bciciv2a:
+    raw: data/raw/bciciv2a
+    sha256_list: data/raw/bciciv2a.sha256
+    line_hz: 50
+    eeg: [Fz, FC3, FC1, FCz, FC2, FC4, C5, C3, C1, Cz, C2, C4, C6, CP3, CP1, CPz, CP2, CP4, P1, Pz, P2, POz]
+    eog: [EOG-left, EOG-central, EOG-right]
+    cue_s: 2.0                             # trial start = fixation cross, cue at +2 s, imagery until +6 s
+    epoch_s: [-2.0, 5.0]                   # relative to the cue
+    windows: {task: {slice_s: [0.5, 2.5], rows: task}, null: {slice_s: [-2.0, 0.0], rows: task}}
+    lowpass_hz: 75
+
+  faced:
+    raw: data/raw/faced/FACED/Processed_data
+    sha256_list: data/raw/faced.sha256     # NAS list, paths ./FACED/Processed_data/subXXX.pkl
+    sha_base: data/raw/faced
+    sfreq_in: 250
+    # Official FACED preprocessing (0.05-47 Hz, ICA, re-referenced, last 30 s of each of 28 clips); only resampled here.
+    # N1 keeps the bands whose upper edge is <= lowpass_hz (the 45-70 Hz band is dropped for FACED).
+    lowpass_hz: 47
+    windows: {task: {slice_s: [[0.0, 10.0], [10.0, 20.0], [20.0, 30.0]], rows: task}, null: null}   # no null window

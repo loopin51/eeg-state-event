@@ -1,0 +1,53 @@
+# D-127 (family F-XV follow-up): wider low-pass (95 Hz, 256 / 250 Hz) and one-band-at-a-time decoding units (log-variance and
+# covariance per band, 40-70 Hz gamma with 50 / 60 Hz notches), meters L_pre / A1 / A2 on every unit. Rules: docs/DECISIONS.md D-127.
+# Data sets, windows, artefact channels and the classifier are those of configs/imnoise.yaml.
+cache_dir: data/cache/imband
+out_dir: results/imband
+datasets: [TOL, BCI, UGR, SEM, IM36, IM36A, GAO]
+sources:                                   # inputs of scripts/imnoise_prep.py (label-free)
+  TOL: {raw: data/raw/thinking_out_loud, condition: 1, resample: 256}      # derivatives epochs (0.5-100 Hz, 256 Hz) kept at 256 Hz
+  BCI: {cache: data/cache/reve_speech/bci2020, pre_raw_config: configs/reve_speech.yaml}   # pre-cue view as in D-126 amendment 5
+  UGR: {cache: data/cache/reve_speech/ugr}
+  SEM: {prep_config: configs/imband_sem.yaml}                               # 0.1-95 Hz, 256 Hz
+  IM36: {prep_config: configs/imband_im36.yaml, ds: ds004514}               # 0.1-95 Hz, 256 Hz
+  IM36A: {prep_config: configs/imband_im36.yaml, ds: ds004517}
+  GAO: {prep_config: configs/imband_gao.yaml, epoch: [-9.5, 4.5], resample: 250}   # 1-95 Hz, 250 Hz
+windows:                                   # seconds; main = imagery window
+  TOL: {main: [1.5, 3.5], pc: [0.1, 0.5], pre: [-0.5, 0.0], cue: [0.1, 0.5]}
+  BCI: {main: [0.0, 2.0], pre: [-0.5, 0.0]}
+  UGR: {main: [0.0, 1.0], pc: [0.0, 1.0], pre: [0.0, 1.0]}                  # pre = rest epoch (stimulus - 1.5 s .. stimulus), its last 1 s
+  SEM: {main: [0.5, 3.5], pc: [0.15, 1.0], pre: [-0.5, 0.0]}
+  IM36: {main: [0.5, 3.0], pc: [0.05, 0.6], pre: [-0.5, 0.0]}
+  IM36A: {main: [0.5, 3.0], pc: [0.05, 0.6], pre: [-0.5, 0.0]}
+  GAO: {main: [1.0, 4.0], pc: [-5.5, -2.0], pre: [-9.0, -6.0], late: [2.5, 4.0]}
+artefact_channels:                         # A1 / A2; TOL and SEM use their EXG / EOG channels (separate arrays)
+  BCI: [Fp1, Fp2, F7, F8, T7, T8]
+  UGR: [Fp1, Fp2, AF7, AF8, FT9, FT10, T7, T8]
+  IM36: [Fp1, Fpz, Fp2, AF7, AF8, T7, T8]
+  IM36A: [Fp1, Fpz, Fp2, AF7, AF8, T7, T8]
+  GAO: [Fp1, Fp2, F7, F8, T7, T8]
+decoders:
+  td_bin: 0.1                              # D1: 100 ms bin means
+  de_bands: [[1, 4], [4, 8], [8, 13], [13, 30], [30, 40]]   # D2
+  rg_band: [1, 40]                         # D3
+  tr_len: 0.2                              # D4: 200 ms windows every 100 ms
+  tr_step: 0.1
+  pca: 64
+  pca_tr: 32
+  butter_order: 4
+knn_k: 5                                   # meter T
+n_perm: 1000
+n_boot: 1000
+alpha: 0.05
+sesoi_kappa: 0.05                          # normalised excess = excess / (1 - 1/K)
+meter_max: 0.01
+seeds: {perm: 20261270, boot: 20261271, info0: 20261272}
+info0: {reps: 200, n_perm: 200, binom_min_p: 0.01, pooled_range: [0.035, 0.065]}
+bands:                                     # D-127 section 2: one unit per band (DE_b log-variance, RG_b covariance) + DE_all
+  list: [[1, 4], [4, 8], [8, 13], [13, 30], [30, 40], [40, 70]]
+  notch_above: 40                          # bands with an upper edge above this get 50 / 60 Hz IIR notches (Q 30) first
+  notch_hz: [50, 60]
+  notch_q: 30
+perm_mode_by: {IM36: foldbal, IM36A: foldbal}   # D-126 amendment 5: fold-balanced remaps (calibrated)
+workers: 8
+workers_by: {SEM: 2, GAO: 4, TOL: 6}       # memory: 256 Hz epochs

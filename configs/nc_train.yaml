@@ -1,0 +1,104 @@
+# D-128 stage 1 (scripts/nc_train.py, docs/08 §4.2, §5, §6). Values marked "search" are chosen on the development
+# data Cho2017 with the same budget for every neural arm (20 random configurations, seed 0) and then frozen in
+# configs/nc_train_frozen.yaml before any evaluation dataset is opened. The values here are the search defaults.
+seed: 20261280                       # subject fold assignment (docs/08 §6)
+cache_dir: data/cache/nc
+runs_dir: results/runs
+positions: data/raw/reve_weights/reve-positions/positions.json
+
+reve:
+  base:                              # brain-bzh/reve-base@dc2a075
+    weights: data/raw/reve_weights/reve-base/model.safetensors
+    encoder: {embed_dim: 512, depth: 22, heads: 8, head_dim: 64, mlp_dim_ratio: 2.66, use_geglu: true, freqs: 4,
+              patch_size: 200, patch_overlap: 20}
+  large:                             # brain-bzh/reve-large@317531c7 (REVE Responsible Use License v1.0)
+    weights: data/raw/reve_weights/reve-large/model.safetensors
+    encoder: {embed_dim: 1216, depth: 22, heads: 19, head_dim: 64, mlp_dim_ratio: 2.66, use_geglu: true, freqs: 5,
+              patch_size: 200, patch_overlap: 20}
+
+proxies: &proxies {eog: [Fp1, Fpz, Fp2], emg: [T7, T8, FT7, FT8]}   # docs/08 §3.1 N2 proxies (missing names skipped)
+tasks:
+  # Cho2017 (development only): stored unit unknown; x 0.0984 matches the median channel SD of its task windows to
+  # PhysioNet-MI (data/cache/nc/scale_check.json, label-free). Only the broadband REVE arms (microvolts / 100) see it.
+  cho2017:      {data: cho2017, n_classes: 2, protocol: subject5fold, proxies: *proxies, unit_factor: 0.0984}
+  physionet_mi: {data: physionet_mi, n_classes: 4, protocol: subject5fold, proxies: *proxies}
+  # FACED: subjects whose median channel SD is > 10 x the dataset median of subjects (sub023 748 x, sub030 10.5 x;
+  # scale_check.json) are left out before any score (failed official preprocessing); 121 subjects remain
+  faced:        {data: faced, n_classes: 9, protocol: subject5fold, proxies: *proxies, exclude_subjects: [sub023, sub030]}
+  bciciv2a_te:  {data: bciciv2a, n_classes: 4, protocol: within_te, proxies: *proxies}
+  bciciv2a_5f:  {data: bciciv2a, n_classes: 4, protocol: subject5fold, proxies: *proxies}
+
+nc_defaults:                         # REVE-NC switches and sizes (docs/08 §4.1)
+  n1: true
+  n1_mode: embed                     # band-wise patch embedding (token count = broadband); 'tokens' measured 11 x slower
+  n2: true
+  n3: true
+  n4: true
+  bands: [[1, 4], [4, 8], [8, 13], [13, 30], [30, 45], [45, 70]]
+  band_gain: 0.2                     # z-scored bands x 0.2 ~ the microvolt/100 scale REVE was pretrained on
+  fm_scale: 100.0                    # broadband input (-N1): microvolts / 100 (REVE task configs)
+  max_ref: 16
+  noise_dim: 16
+  resid_ridge: 0.01
+  tangent_dim: 16
+  mlp_hidden: 256
+  dropout: 0.3
+  adv_hidden: 128
+  adv_bins: 4                        # time / noise-power adversaries classify quantile bins (bounded, GRL)
+  adv_lambda: 0.3                    # search
+  w_null: 0.5                        # search
+  checkpoint: false                  # 128-256 tokens fit without activation checkpointing (smoke)
+
+train:
+  batch: 32
+  max_epochs: 60
+  patience: 10
+  val_fraction: 0.15                 # inner validation: share of training subjects (subject5fold) or T trials (within_te)
+  avg_last: 5
+  lr: 1.0e-3                         # EEGNet and scratch arms (search)
+  lr_head: 1.0e-3                    # new modules of REVE arms (search)
+  lr_encoder: 1.0e-4                 # LoRA or full encoder (search)
+  weight_decay: 0.01                 # search
+  mixup_alpha: 0.0                   # REVE-Official / REVE-NC arms set their own
+  clip: 1.0                          # gradient-norm clip
+  clip_sd: 15.0                      # input clipping, x recording median channel SD
+  smoke_n: 512
+  smoke_epochs: 2
+
+arms:
+  eegnet:        {model: eegnet, nc: {n1: false, n2: false, n3: false, n4: false}}
+  eegnet_nc:     {model: eegnet, nc: {n1: false, n2: false, n3: true, n4: false}}
+  reve_ft:       {model: reve, nc: {n1: false, n2: false, n3: false, n4: false}, train: {lr_encoder: 1.0e-4}}   # D-125 (full fine-tuning)
+  reve_official: {model: reve, nc: {n1: false, n2: false, n3: false, n4: false}, probe_epochs: 10,
+                  lora: {r: 8, alpha: 16, dropout: 0.0}, train: {mixup_alpha: 0.2}}
+  reve_nc:       {model: reve, probe_epochs: 10, lora: {r: 8, alpha: 16, dropout: 0.0}, train: {mixup_alpha: 0.2},
+                  init: reve}        # replaced by the stage 0 checkpoint path once continued pretraining exists
+  nc_init:       {model: reve, probe_epochs: 10, lora: {r: 8, alpha: 16, dropout: 0.0}, train: {mixup_alpha: 0.2}, init: reve}
+  nc_scratch:    {model: reve, init: scratch, train: {mixup_alpha: 0.2, lr: 3.0e-4}}
+  reve_nc_m1:    {model: reve, nc: {n1: false}, probe_epochs: 10, lora: {r: 8, alpha: 16}, train: {mixup_alpha: 0.2}}
+  reve_nc_m2:    {model: reve, nc: {n2: false}, probe_epochs: 10, lora: {r: 8, alpha: 16}, train: {mixup_alpha: 0.2}}
+  reve_nc_m3:    {model: reve, nc: {n3: false}, probe_epochs: 10, lora: {r: 8, alpha: 16}, train: {mixup_alpha: 0.2}}
+  reve_nc_m4:    {model: reve, nc: {n4: false}, probe_epochs: 10, lora: {r: 8, alpha: 16}, train: {mixup_alpha: 0.2}}
+  reve_nc_large: {model: reve, size: large, probe_epochs: 10, lora: {r: 8, alpha: 16}, train: {mixup_alpha: 0.2}}
+
+# Semi-synthetic shortcut benchmark SB on PhysioNet-MI (docs/08 §7 H1, §13 C6-C8; src/ese/sb/generate.py)
+sb_params:
+  seed: 20261281                     # benchmark: random labels, patterns, templates, per-trial draws
+  cal_seed: 20261282                 # calibration only (scripts/nc_sb_calibrate.py), never the benchmark labels
+  calibration:
+    targets: {induced: 0.10, evoked: 0.10, c1: 0.12, c2: 0.12, c3: 0.12, c4: 0.12}   # linear-readout kappa
+    grid: [0.0025, 0.0035, 0.005, 0.007, 0.01, 0.014, 0.02, 0.028, 0.04, 0.057, 0.08, 0.113, 0.16, 0.226, 0.32]   # sqrt(2) steps
+  amp: {induced: null, evoked: null, c1: null, c2: null, c3: null, c4: null}       # set from results/nc/sb_calibration.json
+sb:
+  ind_clean: {signal: induced, shortcuts: []}
+  ind_c123:  {signal: induced, shortcuts: [c1, c2, c3]}
+  ind_c1:    {signal: induced, shortcuts: [c1]}
+  ind_c2:    {signal: induced, shortcuts: [c2]}
+  ind_c3:    {signal: induced, shortcuts: [c3]}
+  ind_c4:    {signal: induced, shortcuts: [c4]}
+  ev_clean:  {signal: evoked, shortcuts: []}
+  ev_c123:   {signal: evoked, shortcuts: [c1, c2, c3]}
+  ev_c1:     {signal: evoked, shortcuts: [c1]}
+  ev_c2:     {signal: evoked, shortcuts: [c2]}
+  ev_c3:     {signal: evoked, shortcuts: [c3]}
+  ev_c4:     {signal: evoked, shortcuts: [c4]}

@@ -1,0 +1,6 @@
+# D-128 step 1: raw inventory of newly downloaded datasets (scripts/nc_inspect_raw.py)
+out_dir: results/nc/inventory
+datasets:
+  bciciv2a: data/raw/bciciv2a
+  physionet_mi: data/raw/physionet_mi
+  cho2017: data/raw/cho2017

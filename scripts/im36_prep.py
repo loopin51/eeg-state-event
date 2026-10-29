@@ -51,7 +51,9 @@ def process(c, ds, sub, bdf, evtsv, smoke=False):
     E = np.empty((64, (stop + dec - 1) // dec))
     for i in range(0, 64, pc['chunk_channels']):
         x = raw.get_data(picks=list(range(i, min(64, i + pc['chunk_channels']))), stop=stop) * 1e6     # volts -> microvolts
-        E[i:i + x.shape[0]] = mne.filter.filter_data(x, fs_raw, pc['band'][0], pc['band'][1], verbose=False)[:, ::dec]
+        x = mne.filter.filter_data(x, fs_raw, pc['band'][0], pc['band'][1], verbose=False)
+        if pc.get('notch'): x = mne.filter.notch_filter(x, fs_raw, pc['notch'], verbose=False)   # D-127 amendment 1 (none in D-124 / D-126)
+        E[i:i + x.shape[0]] = x[:, ::dec]
     cues = np.array([t['cue'] for t in tr]) // dec
     tasks = [(ti, k, d['sample'] // dec, d['task'], d['onset'] - t['cue_onset']) for ti, t in enumerate(tr) for k, d in enumerate(t['tasks'])]
     ts = np.array([x[2] for x in tasks])
@@ -97,6 +99,10 @@ def process(c, ds, sub, bdf, evtsv, smoke=False):
                front=de_feat(te[:, front], fs, pc['de_bands'], w).astype(np.float32),
                gfp=np.stack([gfp[:, k].mean(-1) for k in np.array_split(w, 4)], 1).astype(np.float32),
                cue=cue_de[[x[0] for x in tasks]].astype(np.float32), pre=pre_de[[x[0] for x in tasks]].astype(np.float32))
+    if pc.get('save_epochs'):                                  # D-126: waveforms (task epochs baseline-corrected; cue epochs one per trial)
+        out.update(task_ep=tb.astype(np.float32), task_t=tt, cue_ep=ce.astype(np.float32), cue_t=tc, cue_trial_ok=c_ok,
+                   trial_category=np.array([t['category'] for t in tr]), trial_concept=np.array([t['concept'] for t in tr]),
+                   trial_onset=np.array([t['cue_onset'] for t in tr]), ch_names=np.array(BIOSEMI))
     meta = dict(ds=ds, sub=sub, n_trials=len(tr), n_tasks=len(tasks), bad=bad, bad_from_epochs=bad2, bad_epoch_rule_skipped=skipped,
                 task_rejected=int((~t_ok).sum()), cue_rejected=int((~c_ok).sum()), concepts=len(set(t['concept'] for t in tr)))
     return out, meta

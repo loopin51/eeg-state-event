@@ -1,0 +1,50 @@
+# D-126: D-124 preprocessing of ds004514 / ds004517 unchanged; waveforms also saved (save_epochs). Only cache_dir and save_epochs differ
+# from configs/im36.yaml.
+raw_roots: {ds004514: data/raw/ds004514, ds004517: data/raw/ds004517}   # -> /mnt/data/eeg_datasets/<ds> (OpenNeuro, CC0)
+stimuli_root: data/raw/ds004514/stimuli
+exclude: ['ds004514:sub-08']           # excluded from EEG analysis in the data descriptor (Rybar et al. 2025)
+cache_dir: data/cache/imnoise/im36_raw
+out_dir: results/im36
+baseline_out: results/baselines/im36_de.json
+prep:
+  fs_raw: 2048
+  decim: 16                            # -> 128 Hz after the 40 Hz low-pass
+  band: [0.1, 40.0]
+  chunk_channels: 16
+  montage: standard_1005
+  bad_mad: 5.0
+  reject_ptp_uv: 300.0
+  bad_epoch_frac: 0.05
+  bad_epoch_max: 16                    # 25% of 64
+  cue_epoch: [-0.6, 1.2]
+  cue_window: [0.05, 0.6]              # photo on screen (0.6 s), meter C
+  pre_window: [-0.5, 0.0]              # fixation before the photo, meter P
+  task_epoch: [-0.2, 3.0]
+  task_baseline: [-0.2, 0.0]
+  task_window: [0.5, 3.0]              # imagery window (the photo and the mask are gone)
+  de_bands: [[1, 4], [4, 8], [8, 13], [13, 30], [30, 40]]
+  frontal_proxy: [Fp1, Fpz, Fp2, AF7, AF8]   # no EOG in ds004514: frontal channels as the ocular meter
+  phase_seed: 20261241
+  save_epochs: true                    # D-126
+lowlevel:                              # EEG-free cue-photo predictor (meter L, defines the incongruent set)
+  size: 64                             # grey composite on white, resized
+  pixels: 16                           # 16 x 16 downsampled intensities
+  hog_cells: 4                         # 4 x 4 cells x 8 orientations
+  sf_bands: 8                          # radial spatial-frequency energy
+  lr_C: 1.0
+  incongruent_per_category: 6
+folds: 6                               # leave-concept-out: 3 animals + 3 tools per fold (sorted names, i mod 6)
+pca: 64
+n_perm: 1000
+n_boot: 1000
+seeds: {perm: 20261240, boot: 20261242, info0: 20261243, power: 20261244, noise: 20261245}
+sesoi: 0.02
+alpha: 0.05
+meter_max: 0.01
+sim:
+  info0_reps: 200
+  n_perm: 200
+  power_deltas: [0.01, 0.02, 0.03, 0.05]
+  power_reps: 50
+classifier:
+  lr_C: 1.0

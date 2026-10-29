@@ -1,0 +1,55 @@
+# D-126 post-result diagnoses (DECISIONS D-126 amendment 5): BCI pre-cue meter L (missing from the registration although D-040
+# recorded the recording-adjacency leak of the official split), and the IM36 / IM36A null calibration (registered remaps break the
+# 3/3 category balance of every concept-held-out fold). Everything else is configs/imnoise.yaml unchanged.
+cache_dir: data/cache/imnoise_diag                  # BCI rebuilt with the pre-cue view; IM36 / IM36A link to data/cache/imnoise
+out_dir: results/imnoise/diag
+datasets: [BCI, IM36, IM36A]
+sources:                                   # inputs of scripts/imnoise_prep.py (label-free)
+  TOL: {raw: data/raw/thinking_out_loud, condition: 1, resample: 128}      # derivatives epochs, 1 = inner speech
+  BCI: {cache: data/cache/reve_speech/bci2020, pre_raw_config: configs/reve_speech.yaml}   # pre-cue view cut from the raw trials
+  UGR: {cache: data/cache/reve_speech/ugr}
+  SEM: {prep_config: configs/imnoise_sem.yaml}                              # scripts/sem_prep.py with imagery epochs saved
+  IM36: {prep_config: configs/imnoise_im36.yaml, ds: ds004514}              # scripts/im36_prep.py with epochs saved
+  IM36A: {prep_config: configs/imnoise_im36.yaml, ds: ds004517}
+  GAO: {prep_config: configs/fv_gao.yaml, epoch: [-9.5, 4.5], resample: 125}
+windows:                                   # seconds; main = imagery window
+  TOL: {main: [1.5, 3.5], pc: [0.1, 0.5], pre: [-0.5, 0.0], cue: [0.1, 0.5]}
+  BCI: {main: [0.0, 2.0], pre: [-0.5, 0.0]}
+  UGR: {main: [0.0, 1.0], pc: [0.0, 1.0], pre: [0.0, 1.0]}                  # pre = rest epoch (stimulus - 1.5 s .. stimulus), its last 1 s
+  SEM: {main: [0.5, 3.5], pc: [0.15, 1.0], pre: [-0.5, 0.0]}
+  IM36: {main: [0.5, 3.0], pc: [0.05, 0.6], pre: [-0.5, 0.0]}
+  IM36A: {main: [0.5, 3.0], pc: [0.05, 0.6], pre: [-0.5, 0.0]}
+  GAO: {main: [1.0, 4.0], pc: [-5.5, -2.0], pre: [-9.0, -6.0], late: [2.5, 4.0]}
+artefact_channels:                         # A1 / A2; TOL and SEM use their EXG / EOG channels (separate arrays)
+  BCI: [Fp1, Fp2, F7, F8, T7, T8]
+  UGR: [Fp1, Fp2, AF7, AF8, FT9, FT10, T7, T8]
+  IM36: [Fp1, Fpz, Fp2, AF7, AF8, T7, T8]
+  IM36A: [Fp1, Fpz, Fp2, AF7, AF8, T7, T8]
+  GAO: [Fp1, Fp2, F7, F8, T7, T8]
+decoders:
+  td_bin: 0.1                              # D1: 100 ms bin means
+  de_bands: [[1, 4], [4, 8], [8, 13], [13, 30], [30, 40]]   # D2
+  rg_band: [1, 40]                         # D3
+  tr_len: 0.2                              # D4: 200 ms windows every 100 ms
+  tr_step: 0.1
+  pca: 64
+  pca_tr: 32
+  butter_order: 4
+knn_k: 5                                   # meter T
+n_perm: 1000
+n_boot: 1000
+alpha: 0.05
+sesoi_kappa: 0.05                          # normalised excess = excess / (1 - 1/K)
+meter_max: 0.01
+seeds: {perm: 20261260, boot: 20261261, info0: 20261262, inject: 20261263, noise: 20261264}
+info0: {reps: 500, n_perm: 200, max_rate_each: 0.10, pooled_range: [0.02, 0.08]}
+inject:
+  evoked: [0.02, 0.04, 0.08, 0.16, 0.32]
+  induced: [0.05, 0.1, 0.2, 0.4, 0.8]
+  reps: 20
+  evoked_lowpass: 5.0
+  induced_band: [8, 30]
+  power: 0.8
+  extend_steps: 4                        # D-126 amendment 1: doubling / halving steps outside the grid
+workers: 8
+workers_by: {SEM: 4}                       # memory: SEM subjects hold ~2 GB of band-passed copies each

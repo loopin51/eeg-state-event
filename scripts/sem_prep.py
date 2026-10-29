@@ -38,7 +38,7 @@ def parse_events(path, concepts, modalities):
     return trials
 
 
-def filt_decim(fdt, nch, pnts, chans, band, fs, decim, chunk):
+def filt_decim(fdt, nch, pnts, chans, band, fs, decim, chunk, notch=None):
     import mne
     X = np.fromfile(fdt, dtype='<f4', count=pnts * nch).reshape(pnts, nch)      # EEGLAB .fdt: sample-major float32
     out = np.empty((len(chans), (pnts + decim - 1) // decim), np.float64)
@@ -46,6 +46,7 @@ def filt_decim(fdt, nch, pnts, chans, band, fs, decim, chunk):
         idx = chans[i:i + chunk]
         x = np.ascontiguousarray(X[:, idx].T, dtype=np.float64)
         x = mne.filter.filter_data(x, fs, band[0], band[1], verbose=False)
+        if notch: x = mne.filter.notch_filter(x, fs, notch, verbose=False)          # D-127 amendment 1 (none in D-121 / D-126)
         out[i:i + len(idx)] = x[:, ::decim]
     return out
 
@@ -89,7 +90,7 @@ def process(c, sub, ses, fdt, chtsv, evtsv, smoke=False):
     if smoke:
         pnts = min(pnts, int(tr[60]['si'] + 6 * pc['fs_raw'])); tr = tr[:60]
     t0 = time.time()
-    D = filt_decim(fdt, nch, pnts, eeg + eog, pc['band'], pc['fs_raw'], pc['decim'], pc['chunk_channels'])
+    D = filt_decim(fdt, nch, pnts, eeg + eog, pc['band'], pc['fs_raw'], pc['decim'], pc['chunk_channels'], pc.get('notch'))
     E, O = D[:len(eeg)], D[len(eeg):]
     sp = np.array([t['sp'] for t in tr]) // pc['decim']; si = np.array([t['si'] for t in tr]) // pc['decim']
     # amendment 2 (D-121): flat raw signal (median EEG-channel ptp < flat_uv over the epoch) -> trial unusable (sub-010 is flat from 1464 s)
@@ -151,6 +152,8 @@ def process(c, sub, ses, fdt, chtsv, evtsv, smoke=False):
             out['p_ep'] = epb.astype(np.float32); out['p_t'] = t
             if pc.get('save_eog_epochs'):
                 out['p_eog_ep'] = eob.astype(np.float32)       # D-123: window-specific ocular meter
+        elif pc.get('save_imag_epochs'):                       # D-126: imagery epochs for the time-domain / covariance decoders
+            out['i_ep'] = epb.astype(np.float32); out['i_eog_ep'] = eob.astype(np.float32); out['i_t'] = t
     meta = dict(sub=sub, ses=ses, n_trials=len(tr), bad=bad, bad_from_epochs=bad2, bad_epoch_rule_skipped=bad2_skipped,
                 p_flat=int(p_flat.sum()), i_flat=int(i_flat.sum()), scale=scale, pnts=int(pnts), fs=fs, seconds=round(time.time() - t0, 1),
                 p_rejected=int((~out['p_ok']).sum()), i_rejected=int((~out['i_ok']).sum()),
