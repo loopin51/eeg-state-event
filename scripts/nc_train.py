@@ -308,7 +308,7 @@ def run_fold(c, arm, d, f, tr, va, te, dev, seed, shuffle, smoke):
             opt.zero_grad(set_to_none=True); loss.backward()
             gn = float(torch.nn.utils.clip_grad_norm_([p for g in opt.param_groups for p in g['params']], T['clip']))
             tl['gnorm'] += gn; gmax = max(gmax, gn)
-            tl['hnorm'] += float(o['h'].float().norm(dim=-1).mean())
+            if 'h' in o: tl['hnorm'] += float(o['h'].float().norm(dim=-1).mean())   # REVE arms (diagnostic)
             opt.step(); step += 1; nb_ += 1
         _, pv = predict(net, d, va, dev, K); s = scores(d.y[va], pv)
         snaps.append(snapshot(net))

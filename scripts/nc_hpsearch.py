@@ -41,7 +41,8 @@ def setv(node, key, v):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('mode', choices=['jobs', 'collect'])
-    ap.add_argument('--arms'); ap.add_argument('--runs', default='results/runs'); ap.add_argument('--data', default='nc_cho'); a = ap.parse_args()
+    ap.add_argument('--arms'); ap.add_argument('--runs', default='results/runs'); ap.add_argument('--data', default='nc_cho')
+    ap.add_argument('--suffix', default='', help='k8s job-name suffix for resubmissions (run folders keep their names)'); a = ap.parse_args()
     h = yaml.safe_load(open(os.path.join(ROOT, a.config))); C = configs(h); od = os.path.join(ROOT, 'results', 'nc', 'hpsearch'); os.makedirs(od, exist_ok=True)
     arms = a.arms.split(',') if a.arms else sorted(C)
     if a.mode == 'jobs':
@@ -51,7 +52,7 @@ def main():
                 hp = ' '.join(f'{k}={v}' for k, v in sorted(cfg.items())) + f" train.max_epochs={h['max_epochs']}"
                 cmd = (f"python scripts/nc_train.py {h['train_config']} --arm {arm} --task {h['task']} --seed {h['seed']} "
                        f"--folds {','.join(map(str, h['folds']))} --tag _hp{i:02d} --hp {hp}")
-                print(f"nc_hp_{arm.replace('_', '-')}_{i:02d}\t{a.data}\t{cmd}")
+                print(f"nc_hp_{arm.replace('_', '-')}_{i:02d}{a.suffix}\t{a.data}\t{cmd}")
         return
     summary = {}
     for arm in arms:
