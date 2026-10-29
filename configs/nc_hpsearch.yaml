@@ -1,0 +1,54 @@
+# D-128 hyperparameter search on the development data Cho2017 (docs/08 §4.2): the same budget for every neural arm,
+# n_configs random configurations, seed 0, folds below; criterion = pooled balanced accuracy over the searched folds'
+# test subjects (development data, so its test folds may be used). Ablations (-N1..-N4, NC-init, Large) reuse the
+# REVE-NC values; the chosen values are frozen in configs/nc_train_frozen.yaml before any evaluation dataset is opened.
+train_config: configs/nc_train.yaml
+task: cho2017
+seed: 0
+folds: [0, 1]                       # two of the five subject folds (budget, docs/08 §9.2)
+n_configs: 20
+sampler_seed: 20261290
+max_epochs: 40                      # search runs only; the frozen config keeps train.max_epochs
+criterion: bal_acc
+common: &common
+  train.lr_head: {log_uniform: [1.0e-4, 3.0e-3]}
+  train.weight_decay: {log_uniform: [1.0e-4, 1.0e-1]}
+  train.mixup_alpha: {choice: [0.0, 0.2, 0.4]}
+arms:
+  eegnet:
+    train.lr: {log_uniform: [1.0e-4, 3.0e-3]}
+    train.weight_decay: {log_uniform: [1.0e-4, 1.0e-1]}
+    train.mixup_alpha: {choice: [0.0, 0.2, 0.4]}
+    train.batch: {choice: [32, 64]}
+  eegnet_nc:
+    train.lr: {log_uniform: [1.0e-4, 3.0e-3]}
+    train.weight_decay: {log_uniform: [1.0e-4, 1.0e-1]}
+    train.mixup_alpha: {choice: [0.0, 0.2, 0.4]}
+    train.batch: {choice: [32, 64]}
+    nc.adv_lambda: {log_uniform: [0.03, 1.0]}
+    nc.w_null: {uniform: [0.1, 1.0]}
+  reve_ft:
+    <<: *common
+    train.lr_encoder: {log_uniform: [1.0e-5, 3.0e-4]}
+    nc.dropout: {uniform: [0.1, 0.5]}
+  reve_official:
+    <<: *common
+    train.lr_encoder: {log_uniform: [1.0e-5, 3.0e-4]}
+    nc.dropout: {uniform: [0.1, 0.5]}
+    lora.r: {choice: [4, 8, 16]}
+    probe_epochs: {choice: [0, 5, 10]}
+  reve_nc:
+    <<: *common
+    train.lr_encoder: {log_uniform: [1.0e-5, 3.0e-4]}
+    nc.dropout: {uniform: [0.1, 0.5]}
+    lora.r: {choice: [4, 8, 16]}
+    probe_epochs: {choice: [0, 5, 10]}
+    nc.adv_lambda: {log_uniform: [0.03, 1.0]}
+    nc.w_null: {uniform: [0.1, 1.0]}
+  nc_scratch:
+    train.lr: {log_uniform: [3.0e-5, 1.0e-3]}
+    train.weight_decay: {log_uniform: [1.0e-4, 1.0e-1]}
+    train.mixup_alpha: {choice: [0.0, 0.2, 0.4]}
+    nc.dropout: {uniform: [0.1, 0.5]}
+    nc.adv_lambda: {log_uniform: [0.03, 1.0]}
+    nc.w_null: {uniform: [0.1, 1.0]}

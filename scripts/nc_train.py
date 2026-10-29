@@ -18,7 +18,7 @@ import numpy as np, yaml, torch, torch.nn as nn, torch.nn.functional as F
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, os.path.join(ROOT, 'src'))
 from ese.data.nc_cache import NcCache
-from ese.model.reve_nc import ReveNC, band_split, add_lora, lora_parameters, grl
+from ese.model.reve_nc import ReveNC, band_split, add_lora, lora_parameters, frozen
 
 
 # ------------------------------------------------------------------ data
@@ -150,9 +150,10 @@ class EEGNetNC(nn.Module):
     def forward(self, x, pos=None, ref=None, scale=None, adv_lambda=0.0):
         mu, sd = x.mean(-1, keepdim=True), x.std(-1, keepdim=True); x = (x - mu) / sd.clamp_min(1e-6)   # per-epoch z-score (D-125)
         if not self.n3: return dict(logits=self.net(x))
-        h = self.feat(x); g = grl(h, adv_lambda)
-        out = dict(logits=self.head(h), adv_time=self.adv_time(g), adv_noise=self.adv_noise(g), adv_null=self.adv_null(g))
-        if self.adv_subj is not None: out['adv_subj'] = self.adv_subj(g)
+        h = self.feat(x); g = h.detach(); out = dict(logits=self.head(h))
+        for k in ('time', 'noise', 'null', 'subj'):
+            hd = getattr(self, f'adv_{k}')
+            if hd is not None: out[f'adv_{k}'], out[f'conf_{k}'] = hd(g), frozen(hd, h)
         return out
 
 
@@ -176,16 +177,20 @@ def build(c, arm, d, n_subjects, dev):
 
 
 def param_groups(net, arm, phase, T):
-    """phase 'probe': new modules only; 'tune': + LoRA (lora arms) or + every encoder weight (full fine-tuning)."""
-    enc = set(id(p) for p in net.enc.parameters()) if hasattr(net, 'enc') else set()
-    lora = set(id(p) for p in lora_parameters(net)) if hasattr(net, 'enc') else set()
-    new = [p for p in net.parameters() if id(p) not in enc]
+    """phase 'probe': new modules only; 'tune': + LoRA (lora arms) or + every encoder weight (full fine-tuning).
+    The N1 band-wise patch embedding replaces REVE's patch embedding, so it is treated as an encoder weight: frozen in
+    the probe phase and trained with lr_encoder afterwards (training it at lr_head from the start feeds a frozen REVE
+    transformer with a moving input embedding; development smoke: no learning, D-128 C10)."""
     if arm['model'] == 'eegnet' or arm.get('init') == 'scratch' and not arm.get('lora'):
         return [dict(params=list(net.parameters()), lr=T['lr'])]
+    emb = list(net.band_patch.parameters()) if hasattr(net, 'band_patch') else []
+    enc = set(id(p) for p in net.enc.parameters()) | set(id(p) for p in emb)
+    lora = set(id(p) for p in lora_parameters(net))
+    new = [p for p in net.parameters() if id(p) not in enc]
     groups = [dict(params=new, lr=T['lr_head'])]
     if phase == 'tune':
-        groups.append(dict(params=[p for p in net.parameters() if id(p) in lora] if arm.get('lora') else
-                           [p for p in net.enc.parameters()], lr=T['lr_encoder']))
+        tune = [p for p in net.parameters() if id(p) in lora] if arm.get('lora') else list(net.enc.parameters())
+        groups.append(dict(params=tune + emb, lr=T['lr_encoder']))
     for p in net.parameters(): p.requires_grad_(False)
     for g in groups:
         for p in g['params']: p.requires_grad_(True)
@@ -238,11 +243,8 @@ def run_fold(c, arm, d, f, tr, va, te, dev, seed, shuffle, smoke):
     y_orig = d.y.copy()
     sc = getattr(d, 'sc_x', None) is not None
     if sc:                                       # SB: shortcuts only in the training and inner-validation subjects of this fold
-        if not hasattr(d, 'x0'): d.x0, d.xn0 = d.x.copy(), (d.xn.copy() if d.has_null else None)
-        tv = np.concatenate([tr, va]); d.x = d.x0.copy(); d.x[tv] += d.sc_x[tv]
-        if d.has_null:
-            d.xn = d.xn0.copy()
-            if d.sc_xn is not None: d.xn[tv] += d.sc_xn[tv]
+        tv = np.concatenate([tr, va]); d.x[tv] += d.sc_x[tv]  # removed again at the end of the fold (no clean copy: memory)
+        if d.has_null and d.sc_xn is not None: d.xn[tv] += d.sc_xn[tv]
         d.derive(dev)
     if shuffle:                                  # within each training/validation subject; test labels untouched
         for s in np.unique(d.subj[np.concatenate([tr, va])]):
@@ -265,10 +267,15 @@ def run_fold(c, arm, d, f, tr, va, te, dev, seed, shuffle, smoke):
         ph = 'probe' if ep < probe else 'tune'
         if ph != phase:
             phase = ph; groups = param_groups(net, arm, ph, T) if arm['model'] == 'reve' else [dict(params=list(net.parameters()), lr=T['lr'])]
-            opt = torch.optim.AdamW(groups, weight_decay=T['weight_decay'])
-        net.train(); perm = rng.permutation(tr); t0 = time.time(); tl = collections.defaultdict(float); nb_ = 0
+            opt = torch.optim.AdamW(groups, weight_decay=T['weight_decay']); ph0 = ep
+            for g in opt.param_groups: g['base_lr'] = g['lr']
+        # same schedule for every arm: per phase, linear warm-up over warmup_epochs, cosine decay to 0 at the last epoch
+        spe = max(1, len(tr) // B); wu = T['warmup_epochs'] * spe; span = max(1, (E - ph0) * spe)
+        net.train(); perm = rng.permutation(tr); t0 = time.time(); tl = collections.defaultdict(float); nb_ = 0; gmax = 0.0
         for i in range(0, len(perm) - B + 1, B):
-            j = perm[i:i + B]; b = batch_to(d, j, dev, null)
+            j = perm[i:i + B]; b = batch_to(d, j, dev, null); k_ = (ep - ph0) * spe + i // B
+            f_ = (k_ + 1) / wu if k_ < wu else 0.5 * (1 + np.cos(np.pi * min(1.0, (k_ - wu) / max(1, span - wu))))
+            for g in opt.param_groups: g['lr'] = g['base_lr'] * f_
             lam = nc['adv_lambda'] * (2 / (1 + np.exp(-10 * step / total_steps)) - 1)          # DANN ramp
             yk = F.one_hot(b['y'], K + int(nc['n3'])).float(); x, ref, scale = b['x'], b['ref'], b['scale']
             tt, npw, sj = F.one_hot(b['t'], nc['adv_bins']).float(), F.one_hot(b['npow'], nc['adv_bins']).float(), b['subj']
@@ -281,27 +288,34 @@ def run_fold(c, arm, d, f, tr, va, te, dev, seed, shuffle, smoke):
             if null:
                 x = torch.cat([x, b['xn']]); ref = torch.cat([ref, b['refn']]); scale = torch.cat([scale, b['scale']])
             with torch.autocast(dev.type, dtype=torch.bfloat16, enabled=dev.type == 'cuda'):
-                o = net(x, pos[None].expand(len(x), -1, -1), ref, scale, adv_lambda=lam)
+                o = net(x, pos[None].expand(len(x), -1, -1), ref, scale)
             lg = o['logits'].float(); n = len(j)
             loss = -(yk * F.log_softmax(lg[:n], -1)).sum(-1).mean(); tl['ce'] += loss.item()
             if null:
                 ln = F.cross_entropy(lg[n:], torch.full((n,), K, device=dev)); loss = loss + nc['w_null'] * ln; tl['null'] += ln.item()
             if 'bias_logits' in o:
                 lb = -(yk[:, :K] * F.log_softmax(o['bias_logits'][:n].float(), -1)).sum(-1).mean(); loss = loss + lb; tl['bias'] += lb.item()
-            if nc['n3']:
+            if nc['n3']:                         # heads learn the targets (detached features); encoder: confusion towards uniform
                 sce = lambda lg_, tg: -(tg * F.log_softmax(lg_.float(), -1)).sum(-1).mean()
+                unif = lambda lg_: -F.log_softmax(lg_.float(), -1).mean(-1).mean()
                 la = sce(o['adv_time'][:n], tt) + sce(o['adv_noise'][:n], npw)
+                lc = unif(o['conf_time'][:n]) + unif(o['conf_noise'][:n])
                 if 'adv_subj' in o:
                     ls = o['adv_subj'][:n].float(); la = la + sjk[0] * F.cross_entropy(ls, sjk[1]) + (1 - sjk[0]) * F.cross_entropy(ls, sjk[2])
-                if null: la = la + F.cross_entropy(o['adv_null'][n:].float(), b['y'])
-                loss = loss + la; tl['adv'] += la.item()
+                    lc = lc + unif(o['conf_subj'][:n])
+                if null: la = la + F.cross_entropy(o['adv_null'][n:].float(), b['y']); lc = lc + unif(o['conf_null'][n:])
+                loss = loss + la + lam * lc; tl['adv'] += la.item(); tl['conf'] += lc.item()
             opt.zero_grad(set_to_none=True); loss.backward()
-            torch.nn.utils.clip_grad_norm_([p for g in opt.param_groups for p in g['params']], T['clip'])
+            gn = float(torch.nn.utils.clip_grad_norm_([p for g in opt.param_groups for p in g['params']], T['clip']))
+            tl['gnorm'] += gn; gmax = max(gmax, gn)
+            tl['hnorm'] += float(o['h'].float().norm(dim=-1).mean())
             opt.step(); step += 1; nb_ += 1
         _, pv = predict(net, d, va, dev, K); s = scores(d.y[va], pv)
         snaps.append(snapshot(net))
         hist.append(dict(epoch=ep, phase=phase, seconds=round(time.time() - t0, 1), samples_per_s=round(nb_ * B * (2 if null else 1) / max(time.time() - t0, 1e-6), 1),
-                         **{k: v / max(nb_, 1) for k, v in tl.items()}, **{f'val_{k}': v for k, v in s.items()}))
+                         **{k: v / max(nb_, 1) for k, v in tl.items() if k != 'gmax'}, grad_max=gmax,
+                         **({'resid_W': float(torch.linalg.norm(net.resid.S_ns))} if hasattr(net, 'resid') else {}),
+                         **{f'val_{k}': v for k, v in s.items()}))
         print(json.dumps(dict(fold=f, **hist[-1])), flush=True)
         if s['bal_acc'] > best: best, best_ep, best_state, bad = s['bal_acc'], ep, average(list(snaps)), 0
         else:
@@ -320,6 +334,9 @@ def run_fold(c, arm, d, f, tr, va, te, dev, seed, shuffle, smoke):
         Pr, prr = predict(net, d, te, dev, K); res['test_reversed'] = scores(d.y[te], prr); pred['probs_reversed'] = Pr.astype(np.float32)
         d.x[te] = keep
     d.y[:] = y_orig
+    if sc:
+        d.x[tv] -= d.sc_x[tv]
+        if d.has_null and d.sc_xn is not None: d.xn[tv] -= d.sc_xn[tv]
     del net, opt
     if dev.type == 'cuda': torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
     return res, hist, pred
@@ -334,7 +351,11 @@ def main():
     for kv in a.hp:                              # dotted overrides, e.g. train.lr_head=3e-4 nc.adv_lambda=0.3
         k, v = kv.split('='); node = arm; ks = k.split('.')
         for q in ks[:-1]: node = node.setdefault(q, {})
-        node[ks[-1]] = yaml.safe_load(v)
+        val = yaml.safe_load(v)
+        if isinstance(val, str):                 # YAML 1.1 reads 3e-5 (no dot) as a string
+            try: val = float(val)
+            except ValueError: pass
+        node[ks[-1]] = val
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     sb = c['sb'][a.sb] if a.sb else None
     t0 = time.time(); d = TaskData(c, a.task, dev, sb=sb); load_s = round(time.time() - t0, 1)

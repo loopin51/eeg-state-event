@@ -61,9 +61,12 @@ train:
   weight_decay: 0.01                 # search
   mixup_alpha: 0.0                   # REVE-Official / REVE-NC arms set their own
   clip: 1.0                          # gradient-norm clip
+  warmup_epochs: 1                   # per phase: linear warm-up, then cosine decay to 0 (all arms)
   clip_sd: 15.0                      # input clipping, x recording median channel SD
   smoke_n: 512
   smoke_epochs: 2
+
+baseline: {C: 1.0}                   # DE+LR (scripts/nc_baseline_de.py)
 
 arms:
   eegnet:        {model: eegnet, nc: {n1: false, n2: false, n3: false, n4: false}}
@@ -88,7 +91,8 @@ sb_params:
   calibration:
     targets: {induced: 0.10, evoked: 0.10, c1: 0.12, c2: 0.12, c3: 0.12, c4: 0.12}   # linear-readout kappa
     grid: [0.0025, 0.0035, 0.005, 0.007, 0.01, 0.014, 0.02, 0.028, 0.04, 0.057, 0.08, 0.113, 0.16, 0.226, 0.32]   # sqrt(2) steps
-  amp: {induced: null, evoked: null, c1: null, c2: null, c3: null, c4: null}       # set from results/nc/sb_calibration.json
+  # results/nc/sb_calibration.json (gpuq job 795, 105 subjects, readout kappa at amp: 0.095 0.096 0.119 0.116 0.118 0.113)
+  amp: {induced: 0.01324, evoked: 0.00620, c1: 0.00766, c2: 0.00603, c3: 0.00526, c4: 0.01573}
 sb:
   ind_clean: {signal: induced, shortcuts: []}
   ind_c123:  {signal: induced, shortcuts: [c1, c2, c3]}

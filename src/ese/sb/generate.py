@@ -123,7 +123,8 @@ def apply_sb(d, sb, c, task):
     p = c['sb_params']; K = d.K
     g = SB(d.x, d.names, d.subj, d.t_order, K, 200, p['seed']); y = g.labels(p['seed'])
     sig, _ = g.render(sb['signal'], y); d.x += (p['amp'][sb['signal']] * g.norm(sb['signal'], y)) * sig; del sig
-    d.sc_x = np.zeros_like(d.x) if sb['shortcuts'] else None; d.sc_xn = np.zeros_like(d.xn) if sb['shortcuts'] and d.has_null else None
+    d.sc_x = np.zeros_like(d.x) if sb['shortcuts'] else None
+    d.sc_xn = np.zeros_like(d.xn) if 'c2' in sb['shortcuts'] and d.has_null else None      # only c2 lives in the null window
     d.sb_gen, d.sb_scale = g, {}
     for k in sb['shortcuts']:
         a, nl = g.render(k, y); s = p['amp'][k] * g.norm(k, y); d.sb_scale[k] = s; d.sc_x += s * a

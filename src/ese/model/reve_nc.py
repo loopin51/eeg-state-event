@@ -7,8 +7,11 @@
                          pass (signal tokens never attend to noise tokens); a bias expert predicts the label from the noise
                          representation only, and the part of the signal representation linearly predictable from the noise
                          representation is removed (running least squares, BatchNorm-style batch/running statistics)
-  N3 null output + adversaries   K+1 outputs (null windows -> class K); gradient-reversal heads for session time, noise
-                         high-frequency power, subject id, and the trial label read from the trial's own null window
+  N3 null output + adversaries   K+1 outputs (null windows -> class K); adversary heads for session time, noise
+                         high-frequency power (quantile bins), subject id, and the trial label read from the trial's own null
+                         window. Heads learn the targets from detached features; the encoder is pushed towards uniform
+                         adversary outputs through frozen copies of the heads (confusion loss; gradient reversal collapsed
+                         the encoder in the development smoke, D-128 C11)
   N4 covariance pooling  per-channel attention pooling -> d x d covariance over channels -> matrix log (tangent space),
                          concatenated with the REVE query-token context; replaces the flatten-all-tokens linear head
 N5 (split conformal abstention) is post hoc and lives with the evaluation code.
@@ -38,6 +41,12 @@ def band_split(x, fs, bands, pad_s=0.5):
     M = band_masks(T + 2 * p, fs, bands, device=x.device).to(x.dtype)
     y = torch.fft.irfft(torch.fft.rfft(xp, dim=-1)[..., None, :] * M, n=T + 2 * p, dim=-1)
     return y[..., p:p + T]
+
+
+def frozen(head, x):
+    """head(x) with the head's parameters detached: gradients reach x only (confusion term)."""
+    from torch.func import functional_call
+    return functional_call(head, {k: v.detach() for k, v in head.named_parameters()}, (x,))
 
 
 class GradReverse(torch.autograd.Function):
@@ -80,7 +89,10 @@ def run_backbone(backbone, x, ckpt):
 
 # ------------------------------------------------------------------ N2 residualisation
 class NoiseResidual(nn.Module):
-    """h_s - (h_n - mu_n) W with W = (S_nn + lam I)^-1 S_ns; batch statistics in training, running statistics in eval."""
+    """h_s - (h_n - mu_n) W, W = (S_nn + lam I)^-1 S_ns from exponential moving averages of the batch statistics.
+    No gradient goes through W or into h_n here: the noise stream is shaped only by the bias head, and the signal path
+    learns around a fixed linear projection. (Batch-fitted W with gradients through both streams, which share the
+    backbone, collapsed training in the development smoke, D-128 C13.) Train and eval use the same running W."""
     def __init__(self, ds, dn, lam=1e-2, momentum=0.05):
         super().__init__(); self.lam, self.m = lam, momentum
         self.register_buffer('mu_n', torch.zeros(dn)); self.register_buffer('mu_s', torch.zeros(ds))
@@ -88,19 +100,15 @@ class NoiseResidual(nn.Module):
 
     def forward(self, hs, hn):
         with torch.autocast(hs.device.type, enabled=False):         # least squares in float32 (no bf16 LU)
-            return self._forward(hs.float(), hn.float())
-
-    def _forward(self, hs, hn):
-        if self.training and hs.shape[0] > 2:
-            mn, ms = hn.mean(0), hs.mean(0); a, b = hn - mn, hs - ms; n = hs.shape[0]
-            Snn, Sns = a.t() @ a / n, a.t() @ b / n
+            hs, hn = hs.float(), hn.float().detach()
+            if self.training and hs.shape[0] > 2:
+                with torch.no_grad():
+                    mn, ms = hn.mean(0), hs.detach().mean(0); a, b = hn - mn, hs.detach() - ms; n = hs.shape[0]
+                    for buf, v in ((self.mu_n, mn), (self.mu_s, ms), (self.S_nn, a.t() @ a / n), (self.S_ns, a.t() @ b / n)): buf.lerp_(v, self.m)
             with torch.no_grad():
-                for buf, v in ((self.mu_n, mn), (self.mu_s, ms), (self.S_nn, Snn), (self.S_ns, Sns)): buf.lerp_(v.detach().float(), self.m)
-        else:
-            mn, Snn, Sns = self.mu_n, self.S_nn, self.S_ns
-        I = torch.eye(Snn.shape[0], device=hs.device, dtype=Snn.dtype)
-        W = torch.linalg.solve(Snn + self.lam * (Snn.diagonal().mean().detach() + 1e-6) * I, Sns)
-        return hs - (hn - mn) @ W
+                I = torch.eye(self.S_nn.shape[0], device=hs.device)
+                W = torch.linalg.solve(self.S_nn + self.lam * (self.S_nn.diagonal().mean() + 1.0) * I, self.S_ns)
+            return hs - (hn - self.mu_n) @ W
 
 
 # ------------------------------------------------------------------ N4 tangent-space pooling
@@ -148,7 +156,9 @@ class ReveNC(nn.Module):
         # N2
         if nc['n2']:
             self.noise_slot = nn.Parameter(torch.randn(nc['max_ref'], E) * 0.02)
-            self.noise_proj = nn.Linear(E, nc['noise_dim']); self.bias_head = nn.Linear(nc['noise_dim'], n_classes)
+            # LayerNorm fixes the scale of the noise representation: without it a noise stream that carries no label
+            # information shrinks towards a constant, S_nn -> 0 and W explodes (development smoke divergence, D-128 C12)
+            self.noise_proj = nn.Sequential(nn.Linear(E, nc['noise_dim']), nn.LayerNorm(nc['noise_dim'])); self.bias_head = nn.Linear(nc['noise_dim'], n_classes)
             self.resid = NoiseResidual(self._feat_dim(nc, E), nc['noise_dim'], lam=nc['resid_ridge'])
         # N4 / official head
         D = self._feat_dim(nc, E)
@@ -226,7 +236,8 @@ class ReveNC(nn.Module):
     def forward(self, x, pos, ref=None, scale=None, adv_lambda=0.0):
         out = self.features(x, pos, ref, scale); h = out['h']; out['logits'] = self.head(h)
         if self.cfg['n3']:
-            g = grl(out['h_adv'], adv_lambda); out['adv_time'] = self.adv_time(g); out['adv_noise'] = self.adv_noise(g)
-            out['adv_null'] = self.adv_null(g)
-            if self.adv_subj is not None: out['adv_subj'] = self.adv_subj(g)
+            a, g = out['h_adv'], out['h_adv'].detach()
+            for k in ('time', 'noise', 'null', 'subj'):
+                hd = getattr(self, f'adv_{k}')
+                if hd is not None: out[f'adv_{k}'], out[f'conf_{k}'] = hd(g), frozen(hd, a)
         return out
