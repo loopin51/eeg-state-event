@@ -27,6 +27,24 @@ tasks:
   faced:        {data: faced, n_classes: 9, protocol: subject5fold, proxies: *proxies, exclude_subjects: [sub023, sub030]}
   bciciv2a_te:  {data: bciciv2a, n_classes: 4, protocol: within_te, proxies: *proxies}
   bciciv2a_5f:  {data: bciciv2a, n_classes: 4, protocol: subject5fold, proxies: *proxies}
+  # H3 (docs/08 §3.2, §7 H3). Options: window/rows of another kind (pre-cue variant), label column, row filter.
+  bci2020_tv:   {data: bci2020, n_classes: 5, protocol: within_te, proxies: *proxies}     # within-subject 보정: Training -> Validation
+  bci2020_5f:   {data: bci2020, n_classes: 5, protocol: subject5fold, proxies: *proxies}
+  ugr_mode:     {data: ugr, n_classes: 2, protocol: subject5fold, proxies: *proxies}      # Real (overt) vs Silent: report-only, EMG expected
+  ugr_cat:      {data: ugr, n_classes: 6, protocol: subject5fold, proxies: *proxies, label: cat, filter: {label: 1}}    # Silent words
+  ugr_word:     {data: ugr, n_classes: 60, protocol: subject5fold, proxies: *proxies, label: word, filter: {label: 1}}  # Silent words
+  tol:          {data: tol, n_classes: 4, protocol: subject5fold, proxies: *proxies}
+  ds004514:     {data: ds004514, n_classes: 2, protocol: subject5fold, proxies: *proxies}
+  # pre-cue variants (same split and label; REVE arms only where the window is >= one 1 s patch)
+  bci2020_tv_pre: {data: bci2020, n_classes: 5, protocol: within_te, proxies: *proxies, window: pre}
+  tol_pre:      {data: tol, n_classes: 4, protocol: subject5fold, proxies: *proxies, window: pre}
+  ds004514_pre: {data: ds004514, n_classes: 2, protocol: subject5fold, proxies: *proxies, window: pre}
+  # N2 reference signals only (measured + proxies, z-scored per recording); EEGNet arms only
+  bci2020_tv_refs: {data: bci2020, n_classes: 5, protocol: within_te, proxies: *proxies, input: refs}
+  ugr_cat_refs: {data: ugr, n_classes: 6, protocol: subject5fold, proxies: *proxies, label: cat, filter: {label: 1}, input: refs, "null": false}
+  tol_refs:     {data: tol, n_classes: 4, protocol: subject5fold, proxies: *proxies, input: refs}
+  ds004514_refs: {data: ds004514, n_classes: 2, protocol: subject5fold, proxies: *proxies, input: refs}
+  ugr_cat_pre:  {data: ugr, n_classes: 6, protocol: subject5fold, proxies: *proxies, label: cat, filter: {label: 1}, window: "null", "null": false}
 
 nc_defaults:                         # REVE-NC switches and sizes (docs/08 §4.1)
   n1: true

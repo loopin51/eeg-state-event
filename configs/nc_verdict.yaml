@@ -1,0 +1,29 @@
+# D-128 verdict (docs/08 §7, registered before any evaluation score). scripts/nc_verdict.py reads the grid run folders
+# (configs/nc_grid.yaml) and writes results/nc/verdict.json once. Subject bootstrap: subjects resampled with replacement,
+# predictions pooled over the resampled subjects; a metric averaged over seeds is computed on the same resample.
+grid: configs/nc_grid.yaml
+runs_dir: results/runs
+out: results/nc/verdict.json
+n_boot: 1000
+boot_seed: 20261283
+alpha: 0.05                       # one-sided, Holm within H1 (2 comparisons) and within H2 (2 datasets)
+g0: {level: 0.99, upper: 0.02}    # label-shuffle kappa: 99% interval contains 0 or its upper end < 0.02
+h1:
+  nc: reve_nc
+  others: [eegnet, reve_official]
+  signals: [ind, ev]              # R = kappa(clean-trained) - kappa(c123-trained) on clean test subjects, mean of the two
+  validity_margin: 0.02           # (b) kappa_clean(REVE-NC) >= kappa_clean(other) - 0.02 (point estimates)
+  report_arms: [eegnet_nc, reve_nc_m1, reve_nc_m2, reve_nc_m3, reve_nc_m4, nc_scratch, reve_ft]
+  report_shortcuts: [c1, c2, c3, c4]
+h2:
+  nc: reve_nc
+  ref: eegnet
+  datasets: [physionet_mi, faced]
+  margin: -0.02                   # balanced accuracy difference, one-sided 95% lower bound >= margin -> non-inferior
+  report_ref: reve_official
+  interval_only: [bciciv2a_te]
+h3:
+  tasks: [bci2020_tv, bci2020_5f, ugr_mode, ugr_cat, ugr_word, tol, ds004514, bciciv2a_te, bciciv2a_5f]
+  pre: {bci2020_tv: bci2020_tv_pre, tol: tol_pre, ds004514: ds004514_pre, ugr_cat: ugr_cat_pre}   # same split and label only
+  refs: {bci2020_tv: bci2020_tv_refs, ugr_cat: ugr_cat_refs, tol: tol_refs, ds004514: ds004514_refs}
+  level: 0.95

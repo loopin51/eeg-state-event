@@ -28,13 +28,20 @@ class TaskData:
         t = c['tasks'][task]; self.t = t; cache = NcCache(os.path.join(ROOT, c['cache_dir']), t['data']); h = cache.header
         self.lowpass = h['lowpass_hz']
         m = cache.meta.reset_index(drop=True); self.K = t['n_classes']; self.names = h['ch_names']; L0 = h['length']
-        tw = h['windows']['task']['slice']; tws = tw if isinstance(tw[0], list) else [tw]
-        rows = np.where((m['kind'] == 'task').values & ~np.isin(m['subject'].values, t.get('exclude_subjects', [])))[0]
+        # task options (H3, docs/08 §9.4): rows of another kind and its window (`pre`: pre-cue variant), another label
+        # column, row filters ({column: value}); rows with label < 0 are not used
+        win = t.get('window', 'task'); tw = h['windows'][win]['slice']; tws = tw if isinstance(tw[0], list) else [tw]
+        lab = m[t.get('label', 'label')].values; sel = (m['kind'] == h['windows'][win]['rows']).values & (lab >= 0)
+        for col, v in t.get('filter', {}).items(): sel &= (m[col].values == v)
+        rows = np.where(sel & ~np.isin(m['subject'].values, t.get('exclude_subjects', [])))[0]
         pairs = [(r, a, b) for r in rows for a, b in tws]
         nw = h['windows'].get('null'); self.has_null = nw is not None and t.get('null', True)
         if self.has_null:
             na, nb_ = nw['slice']
             if nw['rows'] == 'task': nrow = {r: r for r in rows}
+            elif nw.get('pair') == 'same':      # separate null rows of the same trial (UGR rest before the stimulus)
+                key = {(a, b, c_): i for i, (a, b, c_, k) in enumerate(zip(m['subject'].values, m['session'].values, m['trial'].values, m['kind'].values)) if k == 'null'}
+                nrow = {r: key.get((m.at[r, 'subject'], m.at[r, 'session'], m.at[r, 'trial']), -1) for r in rows}
             else:                               # separate null rows (PhysioNet T0): the null event right before the trial
                 prev = {}
                 for r in rows:
@@ -52,7 +59,7 @@ class TaskData:
         if t.get('unit_factor'):                 # Cho2017: unknown stored unit, matched to PhysioNet-MI (configs/nc_train.yaml)
             self.x *= t['unit_factor']
             if self.has_null: self.xn *= t['unit_factor']
-        self.y = m['label'].values[r_idx].astype(np.int64)
+        self.y = lab[r_idx].astype(np.int64)
         self.subject_names = m['subject'].values[r_idx].astype(str)
         subs = sorted(set(self.subject_names)); self.subjects = subs; sid = {s: i for i, s in enumerate(subs)}
         self.subj = np.array([sid[s] for s in self.subject_names]); self.session = m['session'].values[r_idx].astype(int)
@@ -79,6 +86,8 @@ class TaskData:
         bands = [tuple(b) for b in c['nc_defaults']['bands']]
         self.bands = [b for b in bands if b[1] <= self.lowpass]       # FACED (47 Hz low-pass) drops the 45-70 Hz band
         self.derive(dev)
+        if t.get('input') == 'refs':            # H3 report-only variant: the N2 reference signals alone (EEGNet arms only)
+            assert sb is None and not self.has_null; self.x = self.ref.copy(); self.info['input'] = dict(refs=self.ref_names)
 
     def _refs(self, X, meas):
         xt = torch.from_numpy(X); parts = [] if meas is None else [meas]

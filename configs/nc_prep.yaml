@@ -64,3 +64,64 @@ datasets:
     # N1 keeps the bands whose upper edge is <= lowpass_hz (the 45-70 Hz band is dropped for FACED).
     lowpass_hz: 47
     windows: {task: {slice_s: [[0.0, 10.0], [10.0, 20.0], [20.0, 30.0]], rows: task}, null: null}   # no null window
+
+  # ---------------------------------------------------------------- H3 (docs/08 §3.2 table, D-128 보완 4)
+  # Windows `pre` (pre-cue, report-only H3 variant) are separate rows of kind `pre`: the raw pre-cue segment is cut
+  # before filtering and filtered alone (D-126 amendment 5), stored at row positions 0..len (zeros after).
+  bci2020:
+    raw: "data/raw/bci2020/BCI2020 EEG Signal for Words"
+    sha256_list: data/raw/bci2020.sha256
+    sha_base: data/raw/bci2020
+    line_hz: [50, 60]                      # as D-125 (recording site not documented)
+    epoch_s: [-0.5, 2.6]                   # the official epochs (795 samples at 256 Hz)
+    pad_s: 1.0                             # per-trial filtering, odd extension
+    labels: {Hello: 0, Helpme: 1, Stop: 2, Thankyou: 3, "Yes": 4}   # quoted: YAML 1.1 reads Yes as true
+    # task 0-2 s after the cue (D-125); only 0.5 s before the cue exists -> no same-length null (null loss off, §4.1 rule)
+    windows: {task: {slice_s: [0.0, 2.0], rows: task}, null: null, pre: {slice_s: [-0.5, 0.0], rows: pre}}
+    lowpass_hz: 75
+
+  ugr:
+    raw: data/raw/ugr_mindvoice
+    sha256_list: data/raw/ugr_mindvoice.sha256
+    edf_glob: eeg/sub-*/ses-*/eeg/*_eeg.edf
+    events_dir: meta/files/Data            # BIDS events.tsv (sample column at 1 kHz)
+    words: configs/reve_speech_words.tsv
+    exclude_subjects: [sub-15]             # as D-125 (excluded in the benchmark paper)
+    line_hz: 50
+    eog: [EOG1, EOG2]                      # N2 measured references
+    ref_slots: {sub-13_ses-01: [TP9, TP10]}   # D-125 amendment 2: the EOG slots carry these labels in this session
+    epoch_s: [-0.5, 1.0]                   # task rows around StartSpeech, null rows around StartStimulus - 1.0 s
+    null_offset_s: -1.0
+    # task 0-1 s after StartSpeech (D-126 main window); null = [StartStimulus - 1.0, StartStimulus), same trial, same length
+    windows: {task: {slice_s: [0.0, 1.0], rows: task}, null: {slice_s: [0.0, 1.0], rows: "null", pair: same}}
+    lowpass_hz: 75
+
+  tol:
+    raw: data/raw/thinking_out_loud
+    sha256_list: data/raw/thinking_out_loud.sha256   # made on the server 2026-11-02 (no list was published)
+    line_hz: 50                            # already notched by the authors; repeated, harmless
+    condition: 1                           # inner speech (D-126)
+    epoch_s: [-0.5, 4.0]                   # the authors' epochs (cue at 0)
+    pad_s: 1.0
+    # 64 10-10 names of the BioSemi 64 cap, each taken from the nearest of the 128 electrodes (scripts/nc_prep.py tol)
+    names64: [Fp1, AF7, AF3, F1, F3, F5, F7, FT7, FC5, FC3, FC1, C1, C3, C5, T7, TP7, CP5, CP3, CP1, P1, P3, P5, P7, P9, PO7,
+              PO3, O1, Iz, Oz, POz, Pz, CPz, Fpz, Fp2, AF8, AF4, AFz, Fz, F2, F4, F6, F8, FT8, FC6, FC4, FC2, FCz, Cz, C2, C4,
+              C6, T8, TP8, CP6, CP4, CP2, P2, P4, P6, P8, P10, PO8, PO4, O2]
+    # task 1.5-3.5 s (D-126); only 0.5 s before the cue -> no null
+    windows: {task: {slice_s: [1.5, 3.5], rows: task}, null: null, pre: {slice_s: [-0.5, 0.0], rows: pre}}
+    lowpass_hz: 75
+
+  ds004514:
+    raw: data/raw/ds004514
+    sha256_list: data/raw/ds004514.sha256  # made on the server 2026-11-02 (OpenNeuro publishes no list)
+    exclude_subjects: [sub-08]             # excluded from EEG analysis in the data descriptor (Rybar et al. 2025)
+    line_hz: 50
+    names64: [Fp1, AF7, AF3, F1, F3, F5, F7, FT7, FC5, FC3, FC1, C1, C3, C5, T7, TP7, CP5, CP3, CP1, P1, P3, P5, P7, P9, PO7,
+              PO3, O1, Iz, Oz, POz, Pz, CPz, Fpz, Fp2, AF8, AF4, AFz, Fz, F2, F4, F6, F8, FT8, FC6, FC4, FC2, FCz, Cz, C2, C4,
+              C6, T8, TP8, CP6, CP4, CP2, P2, P4, P6, P8, P10, PO8, PO4, O2]   # A1..B32 (D-124)
+    tasks: [silent_naming, visual_imagery, auditory_imagery, tactile_imagery]
+    epoch_s: [0.0, 3.0]                    # each task period (3 s)
+    pre_s: 1.0                             # fixation before the cue photo (1.03 s on screen): 1 s = one REVE patch
+    # task 0.5-3.0 s (D-124 imagery window); the blank before each task is 0.2-0.5 s -> no same-length null
+    windows: {task: {slice_s: [0.5, 3.0], rows: task}, null: null, pre: {slice_s: [0.0, 1.0], rows: pre}}
+    lowpass_hz: 75

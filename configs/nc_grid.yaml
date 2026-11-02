@@ -1,0 +1,37 @@
+# D-128 registered grid (docs/08 §9.4, k3s-only reduced grid approved by the user 2026-11-02). scripts/nc_grid.py turns
+# each item into runs of scripts/nc_train.py with the frozen hyperparameters; the verdict (scripts/nc_verdict.py) reads
+# the run folders. One GPU type per group (D-095): h1 and h2 on k3s RTX 5080, h3 on the server RTX 4070 (gpuq).
+train_config: configs/nc_train_frozen.yaml
+seeds: {main: [0, 1, 2], report: [0]}
+main_arms: &main [eegnet, reve_official, reve_nc]
+report_arms: &rep [reve_nc_m1, reve_nc_m2, reve_nc_m3, reve_nc_m4, nc_scratch, reve_ft]
+groups:
+  h1:                                        # H1 shortcut benchmark SB (PhysioNet-MI background, random labels)
+    runner: k3s
+    data: nc_pmi
+    items:
+      - {task: physionet_mi, sb: [ind_clean, ind_c123, ev_clean, ev_c123], arms: [eegnet, reve_official, reve_nc, eegnet_nc], seeds: main}
+      - {task: physionet_mi, sb: [ind_clean, ev_clean], arms: [eegnet, reve_official, reve_nc, eegnet_nc], seeds: report, shuffle: true}
+      - {task: physionet_mi, sb: [ind_c1, ind_c2, ind_c3, ind_c4, ev_c1, ev_c2, ev_c3, ev_c4], arms: *main, seeds: report}
+      - {task: physionet_mi, sb: [ind_clean, ind_c123, ev_clean, ev_c123], arms: *rep, seeds: report}
+      - {task: physionet_mi, sb: [ind_clean], arms: *rep, seeds: report, shuffle: true}
+  h2:                                        # H2 non-inferiority (positive controls)
+    runner: k3s
+    data: {physionet_mi: nc_pmi, faced: nc_faced}
+    items:
+      - {task: [physionet_mi, faced], arms: *main, seeds: main}
+      - {task: [physionet_mi, faced], arms: [eegnet, reve_official, reve_nc, eegnet_nc], seeds: report, shuffle: true}
+      - {task: [physionet_mi], arms: [eegnet_nc, reve_nc_m1, reve_nc_m2, reve_nc_m3, reve_nc_m4, nc_scratch, reve_ft], seeds: report}
+      - {task: [faced], arms: [eegnet_nc], seeds: report}
+      - {task: [physionet_mi], arms: [reve_nc_large], seeds: report, data: nc_pmi_large}   # first to drop if time runs out
+  h3:                                        # H3 imagined speech / imagery (descriptive) and BCI IV 2a
+    runner: gpuq
+    mem_gb: 11
+    items:
+      - {task: [bci2020_tv, bci2020_5f, ugr_cat, ugr_word, tol, ds004514, bciciv2a_te, bciciv2a_5f], arms: *main, seeds: main}
+      - {task: [ugr_mode], arms: *main, seeds: report}                    # overt vs covert: report-only
+      - {task: [bci2020_tv, bci2020_5f, ugr_mode, ugr_cat, ugr_word, tol, ds004514, bciciv2a_te, bciciv2a_5f], arms: *main, seeds: report, shuffle: true}
+      - {task: [bci2020_tv, bci2020_5f, ugr_cat, ugr_word, tol, ds004514], arms: [reve_nc_m2], seeds: report}   # -N2 (docs/08 §4.1 risk)
+      - {task: [bci2020_tv_pre, tol_pre], arms: [eegnet], seeds: report}                               # 0.5 s: shorter than one REVE patch
+      - {task: [ds004514_pre, ugr_cat_pre], arms: *main, seeds: report}
+      - {task: [bci2020_tv_refs, ugr_cat_refs, tol_refs, ds004514_refs], arms: [eegnet], seeds: report}

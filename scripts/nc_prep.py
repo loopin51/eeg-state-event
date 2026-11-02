@@ -1,6 +1,6 @@
 """D-128 step 1: label-free epoch caches for REVE-NC (docs/08 §3.1). No scores are computed.
 
-usage: env/bin/python scripts/nc_prep.py configs/nc_prep.yaml --data physionet_mi|cho2017|bciciv2a|faced [--subjects a,b]
+usage: env/bin/python scripts/nc_prep.py configs/nc_prep.yaml --data physionet_mi|cho2017|bciciv2a|faced|bci2020|ugr|tol|ds004514 [--subjects a,b]
 
 Every raw file is checked against the dataset sha256 list before it is read. Output: data/cache/nc/<dataset>/ in the
 layout of src/ese/data/nc_cache.py. Channel names are mapped to the MNE standard_1005 spelling and must all be in the
@@ -57,7 +57,8 @@ class Cleaner:
     def __init__(self, c, fs_in, line_hz):
         self.fs_in, self.fs = fs_in, c['sfreq']
         self.sos = butter(c['butter_order'], c['band_hz'], btype='bandpass', fs=fs_in, output='sos')
-        self.notch = [iirnotch(f, c['notch_q'], fs=fs_in) for f in np.arange(line_hz, min(fs_in / 2, c['band_hz'][1] + 5), line_hz)]
+        self.notch = [iirnotch(f, c['notch_q'], fs=fs_in) for base in np.atleast_1d(line_hz)
+                      for f in np.arange(base, min(fs_in / 2, c['band_hz'][1] + 5), base)]
         r = Fraction(self.fs, int(fs_in)).limit_denominator(1000); self.up, self.down = r.numerator, r.denominator
         assert abs(fs_in * self.up / self.down - self.fs) < 1e-9, (fs_in, self.up, self.down)
 
@@ -94,6 +95,27 @@ def fix_bad(c, X, names):
     return (ep.get_data(copy=False) * 1e6).reshape(shp), bad
 
 
+def interp_batch(X, names, bad):
+    """Interpolate the channels `bad` (found by fix_bad on the task data) in other windows of the same recording."""
+    if not bad: return X
+    import mne
+    info = mne.create_info(list(names), 200.0, 'eeg'); info.set_montage(_std_montage(), verbose=False); info['bads'] = list(bad)
+    ep = mne.EpochsArray(X * 1e-6, info, verbose=False); ep.interpolate_bads(reset_bads=True, verbose=False)
+    return ep.get_data(copy=False) * 1e6
+
+
+def pad_to(X, L):
+    """Pre-cue windows shorter than the cache row length are stored at row positions 0..len, zeros after (windows `pre`)."""
+    out = np.zeros(X.shape[:-1] + (L,), X.dtype); out[..., :X.shape[-1]] = X; return out
+
+
+def runs_of(onsets, factor=3.0):
+    """Run index from event times: a gap above factor x the median gap starts a new run (TOL, as D-126 imnoise_prep)."""
+    g = np.diff(onsets); r = np.zeros(len(onsets), int)
+    for i in np.flatnonzero(g > factor * np.median(g)): r[i + 1:] += 1
+    return r
+
+
 def slices(c, d, t0):
     """Config windows (seconds relative to the event) -> sample slices inside an epoch starting at t0 s."""
     fs, out = c['sfreq'], {}
@@ -101,7 +123,7 @@ def slices(c, d, t0):
         if w is None: out[k] = None; continue
         s = w['slice_s']; s = s if isinstance(s[0], list) else [s]
         sl = [[int(round((a - t0) * fs)), int(round((b - t0) * fs))] for a, b in s]
-        out[k] = dict(slice=sl[0] if len(sl) == 1 else sl, rows=w['rows'], seconds=w['slice_s'])
+        out[k] = dict(slice=sl[0] if len(sl) == 1 else sl, rows=w['rows'], seconds=w['slice_s'], **{q: v for q, v in w.items() if q not in ('slice_s', 'rows')})
     return out
 
 
@@ -270,6 +292,189 @@ def faced(c, d, bank, subjects):
         w.add(y, [dict(subject=s, session=0, run=0, trial=k, kind='task', label=EMO[k], clip_id=k + 1, t_onset=0.0, t_order=k / 28,
                        valence=VAL[k]) for k in range(28)])
         if int(s[3:]) % 20 == 0: print(json.dumps(dict(subject=s, n=w.n)), flush=True)
+    return w, sl
+
+
+# ------------------------------------------------------------------ BCI Competition 2020 Track 3 (imagined speech, 5 words)
+def bci2020(c, d, bank, subjects):
+    from scipy.io import loadmat
+    base = os.path.join(ROOT, d['raw']); sl = ShaList(os.path.join(ROOT, d['sha256_list']), os.path.join(ROOT, d['sha_base']))
+    fs_in = 256.0; cl = Cleaner(c, fs_in, d['line_hz']); n0 = int(round(-d['epoch_s'][0] * fs_in)); pad = int(d['pad_s'] * fs_in)
+    w = None
+    for sid in range(1, 16):
+        s = f'sub-{sid:02d}'
+        if subjects and s not in subjects: continue
+        t_sub = time.time(); xs, pres, rows = [], [], []
+        for ses, (folder, key) in enumerate((('Training set', 'epo_train'), ('Validation set', 'epo_validation'))):
+            p = os.path.join(base, folder, f'Data_Sample{sid:02d}.mat'); sl.check(p)
+            e = loadmat(p)[key][0, 0]; assert float(e['fs'][0, 0]) == fs_in
+            x = np.transpose(e['x'], (2, 1, 0)).astype(np.float64); y = e['y'].argmax(0); n = len(x)
+            names = canonical_names([str(q[0]) for q in e['clab'][0]], bank)
+            xs.append(cl(x, padlen=pad))
+            pres.append(cl(x[..., :n0], padlen=n0 - 1))      # pre-cue cut from the raw trial before filtering (D-126 amendment 5)
+            rows += [dict(subject=s, session=ses, run=ses, trial=ses * 1000 + k, kind='task', label=int(y[k]), split=('train', 'test')[ses],
+                          clip_id=-1, t_onset=float(k), t_order=k / n) for k in range(n)]
+        X = np.concatenate(xs); Pre = np.concatenate(pres); L = X.shape[-1]
+        if w is None:
+            w = NcCacheWriter(os.path.join(ROOT, c['cache_dir']), 'bci2020', names, L, extra=dict(
+                epoch_t0_s=d['epoch_s'][0], windows=slices(c, d, d['epoch_s'][0]), lowpass_hz=d['lowpass_hz'],
+                preprocessing=dict(c=dict((k, c[k]) for k in ('band_hz', 'butter_order', 'notch_q', 'sfreq')), line_hz=d['line_hz'], fs_in=fs_in,
+                                   per_trial='filtered alone with odd extension (pad_s)', pre='rows kind pre: raw [-0.5, 0) filtered alone, row positions 0-0.5 s',
+                                   reference='common average'),
+                labels=d['labels'], split='official: Training set -> train, Validation set -> test (Test set has no labels)',
+                source='BCI Competition 2020 Track 3'))
+        assert names == w.header['ch_names'] and L == w.header['length']
+        X, bad = fix_bad(c, X, names); Pre = interp_batch(Pre, names, bad)
+        if bad: w.header.setdefault('bad_channels', {})[s] = bad
+        X = X - X.mean(1, keepdims=True); Pre = Pre - Pre.mean(1, keepdims=True)
+        w.add(X, rows); w.add(pad_to(Pre, L), [dict(r, kind='pre') for r in rows])
+        print(json.dumps(dict(subject=s, n=w.n, seconds=round(time.time() - t_sub, 1))), flush=True)
+    return w, sl
+
+
+# ------------------------------------------------------------------ UGR-MINDVOICE (OSF 6sh5d), raw EDF, no ICA
+def ugr(c, d, bank, subjects):
+    import mne
+    sys.path.insert(0, os.path.join(ROOT, 'scripts'))
+    from reve_speech_prep import trials_from_events, word_table, norm
+    base = os.path.join(ROOT, d['raw']); sl = ShaList(os.path.join(ROOT, d['sha256_list']), base)
+    words, wcat, cats = word_table(os.path.join(ROOT, d['words'])); wn = {norm(v): i for i, v in enumerate(words)}; wf = {norm(v, False): i for i, v in enumerate(words)}
+    edfs = sorted(glob.glob(os.path.join(base, d['edf_glob']))); subs = sorted({re.findall(r'(sub-\d+)', f)[0] for f in edfs})
+    subs = [s for s in subs if s not in d['exclude_subjects'] and (not subjects or s in subjects)]
+    fs0 = 1000.0; cl = Cleaner(c, fs0, d['line_hz']); fs = c['sfreq']; L = int(round((d['epoch_s'][1] - d['epoch_s'][0]) * fs)); a0 = int(round(d['epoch_s'][0] * fs))
+    w = None
+    for s in subs:
+        for si, f in enumerate([f for f in edfs if f'/{s}/' in f]):
+            t_sub = time.time(); ses = re.findall(r'(ses-\d+)', f)[0]; key = f'{s}_{ses}'; sl.check(f)
+            ev = glob.glob(os.path.join(base, d['events_dir'], s, ses, 'eeg', '*_events.tsv')); assert len(ev) == 1, (key, ev)
+            raw = mne.io.read_raw_edf(f, preload=False, verbose=False); assert raw.info['sfreq'] == fs0
+            refs = d['ref_slots'].get(key, d['eog']); eeg = [n for n in raw.ch_names if n not in refs]
+            names = canonical_names(eeg, bank)
+            if w is None:
+                w = NcCacheWriter(os.path.join(ROOT, c['cache_dir']), 'ugr', names, L, ref_names=d['eog'], extra=dict(
+                    epoch_t0_s=d['epoch_s'][0], windows=slices(c, d, d['epoch_s'][0]), lowpass_hz=d['lowpass_hz'],
+                    preprocessing=dict(c=dict((k, c[k]) for k in ('band_hz', 'butter_order', 'notch_q', 'sfreq')), line_hz=d['line_hz'], fs_in=fs0,
+                                       ica='none (D-125 used ICA; N2 needs the ocular components left in)', reference='common average (EEG only)'),
+                    ref_slots=d['ref_slots'], events='task rows: StartSpeech; null rows: StartStimulus - 1.0 s (rest, same trial)',
+                    labels=dict(label='mode 0 Real 1 Silent', cat=cats, word=words), source='UGR-MINDVOICE (OSF 6sh5d)'))
+            assert names == w.header['ch_names'], key
+            X = np.concatenate([cl(raw.get_data(picks=eeg[i:i + 16]) * 1e6) for i in range(0, len(eeg), 16)])
+            R = cl(raw.get_data(picks=refs) * 1e6); X, bad = fix_bad(c, X, names); X = car(X); T = X.shape[1]
+            if bad: w.header.setdefault('bad_channels', {})[key] = bad
+            tr = [t for t in trials_from_events(ev[0]) if t['part'] == 'Experiment' and 'Speech' in t['s'] and 'Stimulus' in t['s']]
+            xs, rs, rows = [], [], []
+            for k, t in enumerate(tr):
+                i_s = int(round(t['s']['Speech'] / fs0 * fs)) + a0; i_r = int(round(t['s']['Stimulus'] / fs0 * fs + d['null_offset_s'] * fs)) + a0
+                if min(i_s, i_r) < 0 or max(i_s, i_r) + L > T: continue
+                wd = wn.get(norm(t['item'])) if t['kind'] == 'Words' else None
+                if t['kind'] == 'Words' and wd is None: wd = wf.get(norm(t['item'], False))
+                wd = -1 if wd is None else wd
+                r0 = dict(subject=s, session=si, run=si, trial=k, label=0 if t['mode'] == 'Real' else 1, cat=wcat[wd] if wd >= 0 else -1, word=wd,
+                          kind_item=t['kind'], cue=t['cue'], item=t['item'].strip(), clip_id=-1, t_onset=t['s']['Speech'] / fs0, t_order=k / len(tr))
+                for kind, i0 in (('task', i_s), ('null', i_r)):
+                    xs.append(X[:, i0:i0 + L]); rs.append(R[:, i0:i0 + L]); rows.append(dict(r0, kind=kind))
+            w.add(np.stack(xs), rows, ref=np.stack(rs)); del X, R, raw
+            print(json.dumps(dict(session=key, n=w.n, trials=len(tr), seconds=round(time.time() - t_sub, 1))), flush=True)
+    return w, sl
+
+
+# ------------------------------------------------------------------ Thinking out loud (ds003626, authors' epochs)
+def tol(c, d, bank, subjects):
+    import mne
+    base = os.path.join(ROOT, d['raw']); sl = ShaList(os.path.join(ROOT, d['sha256_list']), base)
+    fs_in = 256.0; cl = Cleaner(c, fs_in, d['line_hz']); pad = int(d['pad_s'] * fs_in); n0 = int(round(-d['epoch_s'][0] * fs_in))
+    # 128 BioSemi electrodes (A1..D32, not 10-05 names) -> the 64 10-10 names of the BioSemi 64 cap: both MNE templates
+    # (biosemi128, standard_1005) are moved to the unit sphere (least-squares sphere fit), aligned by alternating a one-to-one
+    # minimum-distance assignment (Hungarian) and an orthogonal Procrustes rotation (10 rounds), and the final assignment
+    # picks one electrode per name. Fixed and label-free; distances (percent of the head radius) go to the header.
+    from scipy.optimize import linear_sum_assignment
+    from scipy.linalg import orthogonal_procrustes
+    def sphere(M):
+        z = np.linalg.lstsq(np.c_[2 * M, np.ones(len(M))], (M ** 2).sum(1), rcond=None)[0]; ctr = z[:3]
+        return (M - ctr) / np.sqrt(z[3] + (ctr ** 2).sum())
+    b128 = mne.channels.make_standard_montage('biosemi128').get_positions()['ch_pos']; std = _std_montage().get_positions()['ch_pos']
+    bn = list(b128); B = sphere(np.array([b128[n] for n in bn])); Q = sphere(np.array([std[n] for n in d['names64']]))
+    for _ in range(10):
+        qi, bj = linear_sum_assignment(np.linalg.norm(Q[:, None] - B[None], axis=-1)); B = B @ orthogonal_procrustes(B[bj], Q[qi])[0]
+    D_ = np.linalg.norm(Q[:, None] - B[None], axis=-1); qi, bj = linear_sum_assignment(D_); o = np.argsort(qi)
+    pick = [bn[j] for j in bj[o]]; dist = {n: round(float(D_[i, j]) * 100, 1) for n, i, j in zip(d['names64'], qi[o], bj[o])}
+    names = canonical_names(d['names64'], bank); w = None
+    for sd in sorted(glob.glob(os.path.join(base, 'derivatives', 'sub-*'))):
+        s = os.path.basename(sd)
+        if subjects and s not in subjects: continue
+        t_sub = time.time(); xs, rs, pres, rows = [], [], [], []
+        for si, dd in enumerate(sorted(glob.glob(os.path.join(sd, 'ses-*')))):
+            p = os.path.join(dd, f'{s}_{os.path.basename(dd)}')
+            for suf in ('_eeg-epo.fif', '_exg-epo.fif', '_events.dat'): sl.check(p + suf)
+            ev = np.load(p + '_events.dat', allow_pickle=True)
+            e = mne.read_epochs(p + '_eeg-epo.fif', verbose=False); x = mne.read_epochs(p + '_exg-epo.fif', verbose=False)
+            assert len(e) == len(ev) == len(x) and e.info['sfreq'] == fs_in and abs(e.tmin - d['epoch_s'][0]) < 1e-6, p
+            run = runs_of(ev[:, 0].astype(float)); keep = np.flatnonzero(ev[:, 2] == d['condition'])
+            E = e.get_data(picks=pick)[keep] * 1e6; A = x.get_data()[keep] * 1e6
+            xs.append(cl(E, padlen=pad)); rs.append(cl(A, padlen=pad)); pres.append(cl(E[..., :n0], padlen=n0 - 1))
+            rows += [dict(subject=s, session=si, run=int(si * 100 + run[k]), trial=int(si * 1000 + k), kind='task', label=int(ev[k, 1]),
+                          condition=int(ev[k, 2]), clip_id=-1, t_onset=float(ev[k, 0] / 1024.0), t_order=float(j / len(keep)))
+                     for j, k in enumerate(keep)]
+        X = np.concatenate(xs); R = np.concatenate(rs); Pre = np.concatenate(pres); L = X.shape[-1]
+        if w is None:
+            w = NcCacheWriter(os.path.join(ROOT, c['cache_dir']), 'tol', names, L, ref_names=[f'EXG{i}' for i in range(1, 9)], extra=dict(
+                epoch_t0_s=d['epoch_s'][0], windows=slices(c, d, d['epoch_s'][0]), lowpass_hz=d['lowpass_hz'],
+                preprocessing=dict(c=dict((k, c[k]) for k in ('band_hz', 'butter_order', 'notch_q', 'sfreq')), line_hz=d['line_hz'], fs_in=fs_in,
+                                   source_epochs='authors derivatives (0.5-100 Hz, 50 Hz notch, -0.5-4 s); refiltered per epoch with odd extension',
+                                   pre='rows kind pre: [-0.5, 0) cut from the derivative epoch, filtered alone', reference='common average (64 picked channels)'),
+                channel_map=dict(zip(d['names64'], pick)), channel_map_mm=dist, condition=d['condition'],
+                labels='0 arriba 1 abajo 2 derecha 3 izquierda (inner speech)', source='OpenNeuro ds003626 derivatives'))
+        assert L == w.header['length']
+        X, bad = fix_bad(c, X, names); Pre = interp_batch(Pre, names, bad)
+        if bad: w.header.setdefault('bad_channels', {})[s] = bad
+        X = X - X.mean(1, keepdims=True); Pre = Pre - Pre.mean(1, keepdims=True)
+        w.add(X, rows, ref=R); w.add(pad_to(Pre, L), [dict(r, kind='pre') for r in rows], ref=np.zeros_like(R))
+        print(json.dumps(dict(subject=s, n=w.n, seconds=round(time.time() - t_sub, 1))), flush=True)
+    return w, sl
+
+
+# ------------------------------------------------------------------ ds004514 (concept imagery, animals / tools)
+def ds004514(c, d, bank, subjects):
+    import csv, mne
+    base = os.path.join(ROOT, d['raw']); sl = ShaList(os.path.join(ROOT, d['sha256_list']), base)
+    fs0 = 2048.0; cl = Cleaner(c, fs0, d['line_hz']); fs = c['sfreq']; names = canonical_names(d['names64'], bank)
+    L = int(round((d['epoch_s'][1] - d['epoch_s'][0]) * fs)); a0 = int(round(d['epoch_s'][0] * fs)); npre = int(round(d['pre_s'] * fs0))
+    tasks = d['tasks']; w = NcCacheWriter(os.path.join(ROOT, c['cache_dir']), 'ds004514', names, L, extra=dict(
+        epoch_t0_s=d['epoch_s'][0], windows=slices(c, d, d['epoch_s'][0]), lowpass_hz=d['lowpass_hz'],
+        preprocessing=dict(c=dict((k, c[k]) for k in ('band_hz', 'butter_order', 'notch_q', 'sfreq')), line_hz=d['line_hz'], fs_in=fs0,
+                           pre=f'rows kind pre: raw [-{d["pre_s"]}, 0) before the cue photo (fixation), filtered alone, row positions 0-{d["pre_s"]} s',
+                           reference='common average'),
+        excluded_subjects=d['exclude_subjects'], tasks=tasks, labels='category 0 animal 1 tool', source='OpenNeuro ds004514'))
+    for f in sorted(glob.glob(os.path.join(base, 'sub-*', 'eeg', '*_eeg.bdf'))):
+        s = re.findall(r'(sub-\d+)', f)[0]
+        if s in d['exclude_subjects'] or (subjects and s not in subjects): continue
+        t_sub = time.time(); sl.check(f); evf = f.replace('_eeg.bdf', '_events.tsv'); sl.check(evf)
+        trials, cur = [], None
+        for r in csv.DictReader(open(evf, encoding='utf-8-sig'), delimiter='\t'):
+            tt = r['trial_type']
+            if tt in ('animal_image', 'tool_image'):
+                cur = dict(cue=int(float(r['sample'])), cat=0 if tt.startswith('animal') else 1, concept=os.path.basename(r['stim_file']).split('_PNG')[0], tasks=[]); trials.append(cur)
+            elif cur is not None and tt.endswith('_task'): cur['tasks'].append((int(float(r['sample'])), tt.split('_', 1)[1].replace('_task', '')))
+        raw = mne.io.read_raw_bdf(f, preload=False, verbose=False); assert raw.info['sfreq'] == fs0
+        assert raw.ch_names[:64] == [f'A{i}' for i in range(1, 33)] + [f'B{i}' for i in range(1, 33)]
+        stop = min(raw.n_times, max(t['tasks'][-1][0] for t in trials if t['tasks']) + int(8 * fs0))
+        X, Pre = [], []
+        for i in range(0, 64, 8):
+            z = raw.get_data(picks=list(range(i, i + 8)), stop=stop) * 1e6
+            Pre.append(np.stack([cl(z[:, t['cue'] - npre:t['cue']], padlen=npre - 1) for t in trials], 0)); X.append(cl(z)); del z
+        X = np.concatenate(X); Pre = np.concatenate(Pre, 1); X, bad = fix_bad(c, X, names); X = car(X); T = X.shape[1]
+        Pre = interp_batch(Pre, names, bad); Pre = Pre - Pre.mean(1, keepdims=True)
+        if bad: w.header.setdefault('bad_channels', {})[s] = bad
+        xs, rows, prow, pk = [], [], [], []
+        for ti, t in enumerate(trials):
+            base_r = dict(subject=s, session=0, run=0, label=t['cat'], concept=t['concept'], clip_id=-1, t_order=ti / len(trials))
+            for k, (smp, name) in enumerate(t['tasks']):
+                i0 = int(round(smp / fs0 * fs)) + a0
+                if i0 < 0 or i0 + L > T: continue
+                xs.append(X[:, i0:i0 + L]); rows.append(dict(base_r, trial=ti * 10 + k, kind='task', task=name, task_pos=k, t_onset=smp / fs0))
+            prow.append(dict(base_r, trial=ti * 10, kind='pre', task='pre', task_pos=-1, t_onset=t['cue'] / fs0)); pk.append(ti)
+        w.add(np.stack(xs), rows); w.add(pad_to(Pre[pk], L), prow); del X
+        print(json.dumps(dict(subject=s, n=w.n, trials=len(trials), seconds=round(time.time() - t_sub, 1))), flush=True)
     return w, sl
 
 
