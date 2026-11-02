@@ -101,7 +101,7 @@ class NoiseResidual(nn.Module):
     def forward(self, hs, hn):
         with torch.autocast(hs.device.type, enabled=False):         # least squares in float32 (no bf16 LU)
             hs, hn = hs.float(), hn.float().detach()
-            if self.training and hs.shape[0] > 2:
+            if self.training and hs.shape[0] > 2 and bool(torch.isfinite(hn).all() and torch.isfinite(hs).all()):
                 with torch.no_grad():
                     mn, ms = hn.mean(0), hs.detach().mean(0); a, b = hn - mn, hs.detach() - ms; n = hs.shape[0]
                     for buf, v in ((self.mu_n, mn), (self.mu_s, ms), (self.S_nn, a.t() @ a / n), (self.S_ns, a.t() @ b / n)): buf.lerp_(v, self.m)
@@ -112,12 +112,29 @@ class NoiseResidual(nn.Module):
 
 
 # ------------------------------------------------------------------ N4 tangent-space pooling
+class SymLog(torch.autograd.Function):
+    """logm of a batch of SPD matrices by eigh, with the Daleckii-Krein backward V (K o V^T G V) V^T,
+    K_ij = (log w_i - log w_j) / (w_i - w_j) and 2 / (w_i + w_j) when w_i ~ w_j (the limit 1/w). torch's eigh backward has
+    1 / (w_i - w_j) terms that become inf / NaN for (near-)equal eigenvalues and killed training runs (D-128 C15)."""
+    @staticmethod
+    def forward(ctx, S):
+        w, V = torch.linalg.eigh(S); w = w.clamp_min(1e-8); ctx.save_for_backward(w, V)
+        return V @ torch.diag_embed(w.log()) @ V.transpose(-1, -2)
+
+    @staticmethod
+    def backward(ctx, G):
+        w, V = ctx.saved_tensors; G = 0.5 * (G + G.transpose(-1, -2))
+        wi, wj = w[..., :, None], w[..., None, :]; dw = wi - wj; close = dw.abs() <= 1e-4 * (wi + wj)
+        K = torch.where(close, 2.0 / (wi + wj), (wi.log() - wj.log()) / torch.where(close, torch.ones_like(dw), dw))
+        return V @ (K * (V.transpose(-1, -2) @ G @ V)) @ V.transpose(-1, -2)
+
+
 def spd_log_vec(Z, eps=1e-3):
     """Z [B, C, d] -> upper triangle of logm(Z^T Z / C + eps tr/d I), off-diagonals x sqrt(2); float32, no autocast."""
     with torch.autocast(Z.device.type, enabled=False):
         Z = Z.float(); B, C, d = Z.shape; S = Z.transpose(1, 2) @ Z / C
         S = S + eps * (S.diagonal(dim1=1, dim2=2).mean(-1)[:, None, None] + 1e-6) * torch.eye(d, device=Z.device)
-        w, V = torch.linalg.eigh(S); L = V @ torch.diag_embed(w.clamp_min(1e-8).log()) @ V.transpose(1, 2)
+        L = SymLog.apply(S)
         iu = torch.triu_indices(d, d, device=Z.device); scale = torch.where(iu[0] == iu[1], 1.0, math.sqrt(2.0))
         return L[:, iu[0], iu[1]] * scale
 

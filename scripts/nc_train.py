@@ -13,7 +13,7 @@ results/runs/<date>_nc_<task>_<arm>[_shuf]_s<seed>/ with config.yaml, metrics.js
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     os.environ.setdefault(_v, os.environ.get('ESE_NUM_THREADS', '8'))
-import sys, json, time, copy, argparse, datetime, collections
+import sys, json, math, time, copy, argparse, datetime, collections
 import numpy as np, yaml, torch, torch.nn as nn, torch.nn.functional as F
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, os.path.join(ROOT, 'src'))
@@ -307,13 +307,17 @@ def run_fold(c, arm, d, f, tr, va, te, dev, seed, shuffle, smoke):
                 loss = loss + la + lam * lc; tl['adv'] += la.item(); tl['conf'] += lc.item()
             opt.zero_grad(set_to_none=True); loss.backward()
             gn = float(torch.nn.utils.clip_grad_norm_([p for g in opt.param_groups for p in g['params']], T['clip']))
+            if not math.isfinite(gn):                # non-finite gradient (D-128 C15): skip the update, count it, stop if frequent
+                opt.zero_grad(set_to_none=True); tl['skipped'] += 1; step += 1; nb_ += 1
+                if tl['skipped'] > max(3, 0.05 * spe): raise RuntimeError(f'non-finite gradients in {int(tl["skipped"])} steps of epoch {ep}')
+                continue
             tl['gnorm'] += gn; gmax = max(gmax, gn)
             if 'h' in o: tl['hnorm'] += float(o['h'].float().norm(dim=-1).mean())   # REVE arms (diagnostic)
             opt.step(); step += 1; nb_ += 1
         _, pv = predict(net, d, va, dev, K); s = scores(d.y[va], pv)
         snaps.append(snapshot(net))
         hist.append(dict(epoch=ep, phase=phase, seconds=round(time.time() - t0, 1), samples_per_s=round(nb_ * B * (2 if null else 1) / max(time.time() - t0, 1e-6), 1),
-                         **{k: v / max(nb_, 1) for k, v in tl.items() if k != 'gmax'}, grad_max=gmax,
+                         **{k: v / max(nb_, 1) for k, v in tl.items() if k not in ('gmax', 'skipped')}, grad_max=gmax, skipped=int(tl['skipped']),
                          **({'resid_W': float(torch.linalg.norm(net.resid.S_ns))} if hasattr(net, 'resid') else {}),
                          **{f'val_{k}': v for k, v in s.items()}))
         print(json.dumps(dict(fold=f, **hist[-1])), flush=True)
