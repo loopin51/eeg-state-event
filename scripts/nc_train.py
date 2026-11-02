@@ -81,7 +81,7 @@ class TaskData:
         self.eog = [ch[n] for n in t['proxies']['eog'] if n in ch]; self.emg = [ch[n] for n in t['proxies']['emg'] if n in ch]
         self.refm_x = np.stack([refm(r, a, b) for r, a, b in pairs]).astype(np.float32) if refm else None
         self.refm_xn = np.stack([refm(r, na, nb_) for r, _, _ in pairs]).astype(np.float32) if refm and self.has_null else None
-        self.ref_names = list(h['ref_names']) + ['eog_proxy'] + [f'{self.names[i]}_hi' for i in self.emg]
+        self.ref_names = list(h['ref_names']) + (['eog_proxy'] if self.eog else []) + [f'{self.names[i]}_hi' for i in self.emg]
         self.pos = torch.tensor([json.load(open(os.path.join(ROOT, c['positions'])))[n] for n in self.names], dtype=torch.float32)
         bands = [tuple(b) for b in c['nc_defaults']['bands']]
         self.bands = [b for b in bands if b[1] <= self.lowpass]       # FACED (47 Hz low-pass) drops the 45-70 Hz band
@@ -91,8 +91,9 @@ class TaskData:
 
     def _refs(self, X, meas):
         xt = torch.from_numpy(X); parts = [] if meas is None else [meas]
-        parts.append(band_split(xt[:, self.eog].mean(1, keepdim=True), 200, [(0.5, 4.0)])[:, :, 0].numpy())
-        parts.append(band_split(xt[:, self.emg], 200, [self.hi])[:, :, 0].numpy())
+        if self.eog: parts.append(band_split(xt[:, self.eog].mean(1, keepdim=True), 200, [(0.5, 4.0)])[:, :, 0].numpy())
+        if self.emg: parts.append(band_split(xt[:, self.emg], 200, [self.hi])[:, :, 0].numpy())   # BCI IV 2a: no proxy channels
+        assert parts, 'no noise reference: no measured channels and no proxy channels'
         return np.concatenate(parts, 1).astype(np.float32)
 
     def derive(self, dev):
