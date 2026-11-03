@@ -1,0 +1,50 @@
+# D-128 VERA-CPT stage 0: label-free continued pretraining of the VERA encoder (scripts/nc_pretrain.py,
+# docs/08 §14.2). Every value here is fixed before the run (registration 968a30e); nothing is chosen on evaluation data.
+corpus_dir: data/cache/cpt               # scripts/cpt_prep.py output (Colab: the HF dataset copy, --corpus_dir)
+datasets: [sparrkulee, alice, ds004408, things_eeg1, things_eeg2]   # KUL AAD left out (128 Hz source, docs/08 §14.1)
+positions: data/raw/reve_weights/reve-positions/positions.json
+weights: data/raw/reve_weights/reve-base/model.safetensors    # brain-bzh/reve-base@dc2a075
+encoder: {embed_dim: 512, depth: 22, heads: 8, head_dim: 64, mlp_dim_ratio: 2.66, use_geglu: true, freqs: 4,
+          patch_size: 200, patch_overlap: 20}
+sfreq: 200
+seed: 20261285
+
+input:                                   # same as VERA task training (configs/nc_train.yaml, nc_defaults / train)
+  crop_s: 10.0                           # 11 patches of 1 s with 0.1 s overlap (REVE pretraining windows)
+  clip_sd: 15.0                          # x recording median channel SD
+  bands: [[1, 4], [4, 8], [8, 13], [13, 30], [30, 45], [45, 70]]
+  band_gain: 0.2
+  stats_s: 300.0                         # per-recording clip / band SD estimated on up to 300 s of evenly spaced crops
+  pos_noise_m: 0.0025                    # REVE table 5: position noise std 0.25 cm
+
+mask:                                    # REVE table 5
+  ratio: 0.55
+  spatial_radius_m: 0.03
+  temporal_radius_s: 3.0
+  dropout_ratio: 0.10
+  dropout_radius_m: 0.04
+
+model:
+  decoder_depth: 1                       # REVE-Base: 22 encoder + 1 decoder layers (paper F.1, L = 23)
+  init_std: 0.02
+  secondary_weight: 0.1                  # REVE table 5 lambda
+  adv_bins: 4                            # position of the crop in its recording, quartiles
+  adv_hidden: 128
+  adv_lambda: 0.0718017560538432         # VERA frozen value (configs/nc_train_frozen.yaml reve_nc), DANN ramp
+
+train:
+  steps: 6000
+  batch: 256
+  lr_pretrained: 1.0e-4                  # REVE encoder and the N1 band-wise patch embedding
+  lr_new: 5.0e-4                         # decoder, mask token, secondary FFN, adversary
+  betas: [0.9, 0.95]
+  weight_decay: 0.05
+  clip: 1.0
+  warmup_frac: 0.05                      # warmup - stable - decay (last 20 %, linear to 0)
+  decay_frac: 0.20
+  val_every: 500
+  val_batches: 16                        # fixed crops and masks from the validation recordings (seeded)
+  ckpt_every: 1000                       # resumable state on Google Drive (Colab sessions can end; ~1 GB per save)
+  workers: 6
+  activation_checkpoint: false
+smoke: {steps: 20, batch: 8, val_every: 10, val_batches: 2, ckpt_every: 10}

@@ -174,9 +174,13 @@ def build(c, arm, d, n_subjects, dev):
     from safetensors.torch import load_file
     r = c['reve'][arm.get('size', 'base')]; init = arm.get('init', 'reve')
     w = load_file(os.path.join(ROOT, r['weights'])) if init == 'reve' else None
-    if init not in ('reve', 'scratch'):                     # stage 0 continued-pretraining checkpoint
-        w = {k[4:]: v for k, v in torch.load(os.path.join(ROOT, init), map_location='cpu').items() if k.startswith('enc.')}
+    bp = None
+    if init not in ('reve', 'scratch'):                     # stage 0 continued-pretraining checkpoint (VERA-CPT, docs/08 §14)
+        ck = torch.load(init if os.path.isabs(init) else os.path.join(ROOT, init), map_location='cpu')
+        w = {k[4:]: v for k, v in ck.items() if k.startswith('enc.')}
+        bp = {k[len('band_patch.'):]: v for k, v in ck.items() if k.startswith('band_patch.')}
     net = ReveNC(dict(nc=nc, encoder=r['encoder']), d.K, n_subjects, weights=w)
+    if bp and hasattr(net, 'band_patch'): net.band_patch.load_state_dict(bp, strict=True)   # pretrained N1 embedding
     if arm.get('lora'): add_lora(net.enc.transformer, arm['lora']['r'], arm['lora']['alpha'], arm['lora'].get('dropout', 0.0))
     net = net.to(dev)
     if not nc['n4']:                                         # build the lazy flatten head before the optimizer exists
