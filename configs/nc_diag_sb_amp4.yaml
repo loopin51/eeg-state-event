@@ -1,0 +1,499 @@
+# D-128 post-hoc diagnosis 3 (amplitude, outside the verdict family): a copy of configs/nc_train_frozen.yaml in which
+# only the SB true-signal amplitudes sb_params.amp.induced and .evoked are multiplied by 4 (frozen: 0.01324, 0.0062).
+# Used only by `nc_train.py configs/nc_diag_sb_amp4.yaml --arm reve_nc --sb ind_clean|ev_clean --tag _diag_amp4`.
+seed: 20261280
+cache_dir: data/cache/nc
+runs_dir: results/runs
+positions: data/raw/reve_weights/reve-positions/positions.json
+reve:
+  base:
+    weights: data/raw/reve_weights/reve-base/model.safetensors
+    encoder:
+      embed_dim: 512
+      depth: 22
+      heads: 8
+      head_dim: 64
+      mlp_dim_ratio: 2.66
+      use_geglu: true
+      freqs: 4
+      patch_size: 200
+      patch_overlap: 20
+  large:
+    weights: data/raw/reve_weights/reve-large/model.safetensors
+    encoder:
+      embed_dim: 1216
+      depth: 22
+      heads: 19
+      head_dim: 64
+      mlp_dim_ratio: 2.66
+      use_geglu: true
+      freqs: 5
+      patch_size: 200
+      patch_overlap: 20
+proxies: &id001
+  eog:
+  - Fp1
+  - Fpz
+  - Fp2
+  emg:
+  - T7
+  - T8
+  - FT7
+  - FT8
+tasks:
+  cho2017:
+    data: cho2017
+    n_classes: 2
+    protocol: subject5fold
+    proxies: *id001
+    unit_factor: 0.0984
+  physionet_mi:
+    data: physionet_mi
+    n_classes: 4
+    protocol: subject5fold
+    proxies: *id001
+  faced:
+    data: faced
+    n_classes: 9
+    protocol: subject5fold
+    proxies: *id001
+    exclude_subjects:
+    - sub023
+    - sub030
+  bciciv2a_te:
+    data: bciciv2a
+    n_classes: 4
+    protocol: within_te
+    proxies: *id001
+  bciciv2a_5f:
+    data: bciciv2a
+    n_classes: 4
+    protocol: subject5fold
+    proxies: *id001
+  bci2020_tv:
+    data: bci2020
+    n_classes: 5
+    protocol: within_te
+    proxies: *id001
+  bci2020_5f:
+    data: bci2020
+    n_classes: 5
+    protocol: subject5fold
+    proxies: *id001
+  ugr_mode:
+    data: ugr
+    n_classes: 2
+    protocol: subject5fold
+    proxies: *id001
+  ugr_cat:
+    data: ugr
+    n_classes: 6
+    protocol: subject5fold
+    proxies: *id001
+    label: cat
+    filter:
+      label: 1
+  ugr_word:
+    data: ugr
+    n_classes: 60
+    protocol: subject5fold
+    proxies: *id001
+    label: word
+    filter:
+      label: 1
+  tol:
+    data: tol
+    n_classes: 4
+    protocol: subject5fold
+    proxies: *id001
+  ds004514:
+    data: ds004514
+    n_classes: 2
+    protocol: subject5fold
+    proxies: *id001
+  bci2020_tv_pre:
+    data: bci2020
+    n_classes: 5
+    protocol: within_te
+    proxies: *id001
+    window: pre
+  tol_pre:
+    data: tol
+    n_classes: 4
+    protocol: subject5fold
+    proxies: *id001
+    window: pre
+  ds004514_pre:
+    data: ds004514
+    n_classes: 2
+    protocol: subject5fold
+    proxies: *id001
+    window: pre
+  bci2020_tv_refs:
+    data: bci2020
+    n_classes: 5
+    protocol: within_te
+    proxies: *id001
+    input: refs
+  ugr_cat_refs:
+    data: ugr
+    n_classes: 6
+    protocol: subject5fold
+    proxies: *id001
+    label: cat
+    filter:
+      label: 1
+    input: refs
+    'null': false
+  tol_refs:
+    data: tol
+    n_classes: 4
+    protocol: subject5fold
+    proxies: *id001
+    input: refs
+  ds004514_refs:
+    data: ds004514
+    n_classes: 2
+    protocol: subject5fold
+    proxies: *id001
+    input: refs
+  ugr_cat_pre:
+    data: ugr
+    n_classes: 6
+    protocol: subject5fold
+    proxies: *id001
+    label: cat
+    filter:
+      label: 1
+    window: 'null'
+    'null': false
+nc_defaults:
+  n1: true
+  n1_mode: embed
+  n2: true
+  n3: true
+  n4: true
+  bands:
+  - - 1
+    - 4
+  - - 4
+    - 8
+  - - 8
+    - 13
+  - - 13
+    - 30
+  - - 30
+    - 45
+  - - 45
+    - 70
+  band_gain: 0.2
+  fm_scale: 100.0
+  max_ref: 16
+  noise_dim: 16
+  resid_ridge: 0.01
+  tangent_dim: 16
+  mlp_hidden: 256
+  dropout: 0.3
+  adv_hidden: 128
+  adv_bins: 4
+  adv_lambda: 0.3
+  w_null: 0.5
+  checkpoint: false
+train:
+  batch: 32
+  max_epochs: 60
+  patience: 10
+  val_fraction: 0.15
+  avg_last: 5
+  lr: 0.001
+  lr_head: 0.001
+  lr_encoder: 0.0001
+  weight_decay: 0.01
+  mixup_alpha: 0.0
+  clip: 1.0
+  warmup_epochs: 1
+  clip_sd: 15.0
+  smoke_n: 512
+  smoke_epochs: 2
+baseline:
+  C: 1.0
+arms:
+  eegnet:
+    model: eegnet
+    nc:
+      n1: false
+      n2: false
+      n3: false
+      n4: false
+    train:
+      batch: 64
+      lr: 0.001948359088341719
+      mixup_alpha: 0.4
+      weight_decay: 0.0018987961401587972
+    frozen_from: eegnet hp19 (2026-10-30_nc_cho2017_eegnet_s0_hp19)
+  eegnet_nc:
+    model: eegnet
+    nc:
+      n1: false
+      n2: false
+      n3: true
+      n4: false
+      adv_lambda: 0.04548616432519492
+      w_null: 0.7786189350182179
+    train:
+      batch: 32
+      lr: 0.0010066497697739328
+      mixup_alpha: 0.4
+      weight_decay: 0.019195915037608934
+    frozen_from: eegnet_nc hp15 (2026-11-02_nc_cho2017_eegnet_nc_s0_hp15)
+  reve_ft:
+    model: reve
+    nc:
+      n1: false
+      n2: false
+      n3: false
+      n4: false
+      dropout: 0.31564701615393026
+    train:
+      lr_encoder: 1.172198047120961e-05
+      lr_head: 0.0003882314759461243
+      mixup_alpha: 0.0
+      weight_decay: 0.0006455907858428569
+    frozen_from: reve_ft hp15 (2026-10-30_nc_cho2017_reve_ft_s0_hp15)
+  reve_official:
+    model: reve
+    nc:
+      n1: false
+      n2: false
+      n3: false
+      n4: false
+      dropout: 0.2943008145750366
+    probe_epochs: 0
+    lora:
+      r: 8
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 0.0002872901980062998
+      lr_head: 0.001120490542054679
+      weight_decay: 0.03529370285623307
+    frozen_from: reve_official hp18 (2026-10-30_nc_cho2017_reve_official_s0_hp18)
+  reve_nc:
+    model: reve
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    init: reve
+    nc:
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11)
+  nc_init:
+    model: reve
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    init: reve
+    nc:
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11)
+  nc_scratch:
+    model: reve
+    init: scratch
+    train:
+      mixup_alpha: 0.0
+      lr: 4.13174286558021e-05
+      weight_decay: 0.01741949469137602
+    nc:
+      adv_lambda: 0.061536155460393316
+      dropout: 0.10099738403979873
+      w_null: 0.7350487663337394
+    frozen_from: nc_scratch hp10 (2026-10-30_nc_cho2017_nc_scratch_s0_hp10)
+  reve_nc_m1:
+    model: reve
+    nc:
+      n1: false
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11)
+  reve_nc_m2:
+    model: reve
+    nc:
+      n2: false
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11)
+  reve_nc_m3:
+    model: reve
+    nc:
+      n3: false
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11)
+  reve_nc_m4:
+    model: reve
+    nc:
+      n4: false
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11)
+  reve_nc_large:
+    model: reve
+    size: large
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    nc:
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11)
+sb_params:
+  seed: 20261281
+  cal_seed: 20261282
+  calibration:
+    targets:
+      induced: 0.1
+      evoked: 0.1
+      c1: 0.12
+      c2: 0.12
+      c3: 0.12
+      c4: 0.12
+    grid:
+    - 0.0025
+    - 0.0035
+    - 0.005
+    - 0.007
+    - 0.01
+    - 0.014
+    - 0.02
+    - 0.028
+    - 0.04
+    - 0.057
+    - 0.08
+    - 0.113
+    - 0.16
+    - 0.226
+    - 0.32
+  amp:
+    induced: 0.05296
+    evoked: 0.0248
+    c1: 0.00766
+    c2: 0.00603
+    c3: 0.00526
+    c4: 0.01573
+sb:
+  ind_clean:
+    signal: induced
+    shortcuts: []
+  ind_c123:
+    signal: induced
+    shortcuts:
+    - c1
+    - c2
+    - c3
+  ind_c1:
+    signal: induced
+    shortcuts:
+    - c1
+  ind_c2:
+    signal: induced
+    shortcuts:
+    - c2
+  ind_c3:
+    signal: induced
+    shortcuts:
+    - c3
+  ind_c4:
+    signal: induced
+    shortcuts:
+    - c4
+  ev_clean:
+    signal: evoked
+    shortcuts: []
+  ev_c123:
+    signal: evoked
+    shortcuts:
+    - c1
+    - c2
+    - c3
+  ev_c1:
+    signal: evoked
+    shortcuts:
+    - c1
+  ev_c2:
+    signal: evoked
+    shortcuts:
+    - c2
+  ev_c3:
+    signal: evoked
+    shortcuts:
+    - c3
+  ev_c4:
+    signal: evoked
+    shortcuts:
+    - c4

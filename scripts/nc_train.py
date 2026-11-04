@@ -3,6 +3,7 @@ its ablations) on the label-free caches of scripts/nc_prep.py (k3s admin queue).
 
 usage: python scripts/nc_train.py configs/nc_train.yaml --arm <arm> --task <task> --seed <k> [--shuffle] [--folds 0,1]
                                   [--sb <sb config name>] [--smoke] [--hp key=value ...]
+                                  [--tag <suffix>] [--save-ckpt]
 
 Protocol (docs/08 §4.2, §6): subject 5-fold (fold assignment seed fixed in the config) or within-subject session T -> E.
 Early stopping and model selection use only an inner validation split of the training subjects (D-125 lesson); the
@@ -180,7 +181,13 @@ def build(c, arm, d, n_subjects, dev):
         w = {k[4:]: v for k, v in ck.items() if k.startswith('enc.')}
         bp = {k[len('band_patch.'):]: v for k, v in ck.items() if k.startswith('band_patch.')}
     net = ReveNC(dict(nc=nc, encoder=r['encoder']), d.K, n_subjects, weights=w)
-    if bp and hasattr(net, 'band_patch'): net.band_patch.load_state_dict(bp, strict=True)   # pretrained N1 embedding
+    if bp and hasattr(net, 'band_patch'):                   # pretrained N1 embedding
+        full = [tuple(b) for b in c['nc_defaults']['bands']]   # stage 0 always uses all six bands (configs/nc_pretrain.yaml)
+        if len(d.bands) < len(full):                        # FACED (47 Hz low-pass) has no 45-70 Hz band: keep the blocks of
+            S = net.size                                    # the bands present, as the REVE-init VERA keeps one block per band
+            cols = torch.cat([torch.arange(full.index(tuple(b)) * S, (full.index(tuple(b)) + 1) * S) for b in d.bands])
+            bp = dict(bp, weight=bp['weight'][:, cols])
+        net.band_patch.load_state_dict(bp, strict=True)
     if arm.get('lora'): add_lora(net.enc.transformer, arm['lora']['r'], arm['lora']['alpha'], arm['lora'].get('dropout', 0.0))
     net = net.to(dev)
     if not nc['n4']:                                         # build the lazy flatten head before the optimizer exists
@@ -252,7 +259,7 @@ def average(snaps):
     return out
 
 
-def run_fold(c, arm, d, f, tr, va, te, dev, seed, shuffle, smoke):
+def run_fold(c, arm, d, f, tr, va, te, dev, seed, shuffle, smoke, ckpt_path=None):
     T = {**c['train'], **arm.get('train', {})}; K = d.K; torch.manual_seed(seed); rng = np.random.default_rng(seed)
     y_orig = d.y.copy()
     sc = getattr(d, 'sc_x', None) is not None
@@ -340,6 +347,8 @@ def run_fold(c, arm, d, f, tr, va, te, dev, seed, shuffle, smoke):
             bad += 1
             if bad >= T['patience'] and ep >= probe: break
     miss = net.load_state_dict(best_state, strict=False); assert not miss.unexpected_keys; Pt, pt = predict(net, d, te, dev, K); _, pv = predict(net, d, va, dev, K)
+    if ckpt_path:                                # --save-ckpt (post-hoc diagnosis, off by default): the scored model, full state
+        torch.save(dict(state=net.state_dict(), fold=f, n_subjects=n_subj, best_epoch=best_ep, tr=tr, va=va, te=te), ckpt_path)
     res = dict(test=scores(d.y[te], pt), val=scores(d.y[va], pv), best_epoch=best_ep, epochs_run=len(hist),
                per_subject={d.subjects[s]: scores(d.y[te][d.subj[te] == s], pt[d.subj[te] == s]) for s in np.unique(d.subj[te])},
                n_train=int(len(tr)), n_val=int(len(va)), n_test=int(len(te)), seconds=round(time.time() - t_fold, 1),
@@ -364,7 +373,9 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--arm', required=True); ap.add_argument('--task', required=True)
     ap.add_argument('--seed', type=int, default=0); ap.add_argument('--shuffle', action='store_true'); ap.add_argument('--folds')
     ap.add_argument('--sb'); ap.add_argument('--smoke', action='store_true'); ap.add_argument('--hp', nargs='*', default=[])
-    ap.add_argument('--tag', default=''); a = ap.parse_args()
+    ap.add_argument('--tag', default='')
+    ap.add_argument('--save-ckpt', action='store_true', help='save the scored model of every fold as ckpt_fold<k>.pt (diagnosis only)')
+    a = ap.parse_args()
     c = yaml.safe_load(open(os.path.join(ROOT, a.config))); arm = copy.deepcopy(c['arms'][a.arm])
     for kv in a.hp:                              # dotted overrides, e.g. train.lr_head=3e-4 nc.adv_lambda=0.3
         k, v = kv.split('='); node = arm; ks = k.split('.')
@@ -384,7 +395,8 @@ def main():
     want = [int(v) for v in a.folds.split(',')] if a.folds else None; metrics, history, preds = {}, {}, collections.defaultdict(list)
     for f, tr, va, te in splits(d, c, a):
         if want is not None and f not in want: continue
-        res, hist, p = run_fold(c, arm, d, f, tr, va, te, dev, 1000 * a.seed + f, a.shuffle, a.smoke)
+        res, hist, p = run_fold(c, arm, d, f, tr, va, te, dev, 1000 * a.seed + f, a.shuffle, a.smoke,
+                                ckpt_path=os.path.join(out, f'ckpt_fold{f}.pt') if a.save_ckpt else None)
         metrics[f], history[f] = res, hist
         for k, v in p.items(): preds[k].append(v)
         print(json.dumps({f'fold{f}': res['test'], 'best_epoch': res['best_epoch'], 'max_mem_gb': res['max_mem_gb']}), flush=True)
