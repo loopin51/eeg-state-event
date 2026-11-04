@@ -1,0 +1,12 @@
+# D-128 H1 report-only: SB shortcut runs tested with the shortcuts' label map shifted k -> k+1 mod K on the test fold
+# (scripts/nc_train.py run_fold, src/ese/sb/generate.py reversed_shortcuts; saved as probs_reversed). Not part of the
+# verdict family. scripts/nc_sb_reversed.py reads the saved predictions of the registered grid runs; no training.
+grid: configs/nc_grid.yaml
+runs_dir: results/runs
+out: results/nc/sb_reversed.json
+task: physionet_mi
+signals: [ind, ev]
+shortcuts: [c123, c1, c2, c3, c4]
+n_boot: 1000
+boot_seed: 20261283                    # one draw per signal, shared by every run: [boot_seed, sum(ord('physionet_mi'))]
+level: 0.95

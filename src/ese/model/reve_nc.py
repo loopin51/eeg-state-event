@@ -139,14 +139,50 @@ def spd_log_vec(Z, eps=1e-3):
         return L[:, iu[0], iu[1]] * scale
 
 
+def spd_log_vec_chan(Z, shrink):
+    """Z [B, C, m] -> upper triangle of logm((1-a) S / (tr S / C) + a I), S = Z Z^T / m (C x C over channels), a = shrink."""
+    with torch.autocast(Z.device.type, enabled=False):
+        Z = Z.float(); B, C, m = Z.shape; Z = Z - Z.mean(-1, keepdim=True); S = Z @ Z.transpose(1, 2) / m
+        S = S / (S.diagonal(dim1=1, dim2=2).mean(-1)[:, None, None] + 1e-6)
+        S = (1 - shrink) * S + shrink * torch.eye(C, device=Z.device)
+        L = SymLog.apply(S)
+        iu = torch.triu_indices(C, C, device=Z.device); scale = torch.where(iu[0] == iu[1], 1.0, math.sqrt(2.0))
+        return L[:, iu[0], iu[1]] * scale
+
+
+N4_MODES = ('dcov', 'pool_flat', 'nopool_dcov', 'nopool_flat', 'ccov')
+
+
+def tangent_out_dim(mode, d, C=None, S=None):
+    """Output size of TangentHead for n4_mode (D-129). C channels, S patches per channel (bands are merged by N1 'embed')."""
+    if mode in ('dcov', 'nopool_dcov'): return d * (d + 1) // 2
+    assert C and S, f'n4_mode {mode} needs the channel and patch counts'
+    return {'pool_flat': C * d, 'nopool_flat': C * S * d, 'ccov': C * (C + 1) // 2}[mode]
+
+
 class TangentHead(nn.Module):
-    def __init__(self, E, d, out_dim):
-        super().__init__(); self.q = nn.Parameter(torch.randn(E) * 0.02); self.proj = nn.Linear(E, d); self.out = out_dim
-        self.norm = nn.LayerNorm(d * (d + 1) // 2)
+    """N4 head branch. mode (nc.n4_mode, D-129 sub-step variants; 'dcov' is the D-128 VERA head and the default):
+      dcov         per-channel attention pooling over patches -> proj E->d -> d x d covariance over channels -> logm
+      pool_flat    per-channel attention pooling -> proj -> flatten C x d                  (keeps channel identity)
+      nopool_dcov  proj every token -> d x d covariance over all C x S tokens -> logm      (no patch pooling)
+      nopool_flat  proj every token -> flatten C x S x d                                    (neither step)
+      ccov         per-channel attention pooling -> proj -> C x C channel covariance (shrinkage) -> logm
+    The pooling query q exists in every mode (unused by the nopool modes) so parameter names stay the same."""
+    def __init__(self, E, d, out_dim, mode='dcov', n_chans=None, n_patches=None, shrink=0.1):
+        super().__init__(); assert mode in N4_MODES, mode
+        self.mode, self.shrink = mode, shrink
+        self.q = nn.Parameter(torch.randn(E) * 0.02); self.proj = nn.Linear(E, d); self.out = out_dim
+        self.norm = nn.LayerNorm(tangent_out_dim(mode, d, n_chans, n_patches))
 
     def forward(self, t):                       # t [B, C, S, E] (S = bands x patches of a channel)
+        B, C, S, _ = t.shape
+        if self.mode.startswith('nopool'):
+            z = self.proj(t)                                                      # [B, C, S, d]
+            return self.norm(spd_log_vec(z.reshape(B, C * S, -1)) if self.mode == 'nopool_dcov' else z.flatten(1))
         a = torch.softmax((t @ self.q) / t.shape[-1] ** 0.5, dim=-1)              # [B, C, S]
         z = self.proj((a[..., None] * t).sum(2))                                  # [B, C, d]
+        if self.mode == 'pool_flat': return self.norm(z.flatten(1))
+        if self.mode == 'ccov': return self.norm(spd_log_vec_chan(z, self.shrink))
         return self.norm(spd_log_vec(z))
 
 
@@ -180,7 +216,8 @@ class ReveNC(nn.Module):
         # N4 / official head
         D = self._feat_dim(nc, E)
         if nc['n4']:
-            self.tangent = TangentHead(E, nc['tangent_dim'], D)
+            self.tangent = TangentHead(E, nc['tangent_dim'], D, mode=nc.get('n4_mode', 'dcov'), n_chans=nc.get('n_chans'),
+                                       n_patches=nc.get('n_patches'), shrink=nc.get('ccov_shrink', 0.1))
             self.head = nn.Sequential(nn.LayerNorm(D), nn.Dropout(nc['dropout']), nn.Linear(D, nc['mlp_hidden']), nn.GELU(),
                                       nn.Dropout(nc['dropout']), nn.Linear(nc['mlp_hidden'], n_classes + int(nc['n3'])))
         else:
@@ -193,7 +230,9 @@ class ReveNC(nn.Module):
             self.adv_subj = mlp(n_subjects) if n_subjects else None
 
     @staticmethod
-    def _feat_dim(nc, E): return E + (nc['tangent_dim'] * (nc['tangent_dim'] + 1) // 2 if nc['n4'] else 0)
+    def _feat_dim(nc, E):
+        if not nc['n4']: return E
+        return E + tangent_out_dim(nc.get('n4_mode', 'dcov'), nc['tangent_dim'], nc.get('n_chans'), nc.get('n_patches'))
 
     # -------- tokens
     def _embed(self, x, pos, band_ids=None, slot=None):

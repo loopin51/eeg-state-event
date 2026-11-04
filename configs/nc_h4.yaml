@@ -1,0 +1,18 @@
+# D-128 H4 prediction abstention, report-only (docs/DECISIONS.md D-128 "H4 예측 보류 계산 세부", 2026-11-05, fixed before
+# any H4 number was computed; docs/08 §7 H4). scripts/nc_h4_abstain.py reads the saved test predictions (preds.npz) of
+# the registered grid runs; no training. Not part of the verdict family.
+grid: configs/nc_grid.yaml
+runs_dir: results/runs
+out: results/nc/h4_abstain.json
+tasks:
+  h2: [physionet_mi, faced]                                         # positive controls
+  h3: [bci2020_tv, bci2020_5f, ugr_mode, ugr_cat, ugr_word, tol, ds004514, bciciv2a_te, bciciv2a_5f]
+arms: [reve_nc, eegnet, reve_official]                              # VERA = reve_nc (K+1 outputs, last = null)
+null_arms: [reve_nc]
+seeds: main                                                         # grid seed set; ugr_mode has seed 0 only (report seeds)
+n_boot: 1000
+boot_seed: 20261283                                                 # same draw rule as the verdict: [boot_seed, sum(ord(task))]
+level: 0.95
+# confidence = max softmax over the K task classes (VERA: the K columns renormalised); abstain if confidence < tau_K,
+# tau_K = 1/K + (1 - 1/K)/2. AURC: windows sorted by confidence (highest first, ties in window order), mean over
+# coverage i/n (i = 1..n) of the error rate of the top i.

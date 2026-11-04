@@ -1,0 +1,39 @@
+# D-129 verdict rules (docs/09_vera_n4_plan.md §5, registered before any D-129 run). scripts/n4fix_verdict.py --stage 1
+# runs once after the s1 runs; --stage 2 once after the s2 runs. Subject bootstrap as in D-128 (scripts/nc_verdict.py):
+# one confusion matrix per PhysioNet-MI test subject, the same multinomial draw for every run, seed-mean on the same draw.
+grid: configs/n4fix_grid.yaml
+runs_dir: results/runs
+out_dir: results/n4fix
+n_boot: 1000
+boot_seed: 20261290
+alpha: 0.05                         # one-sided
+g0: {level: 0.99, upper: 0.02}      # label-shuffle kappa (D-128 rule): 99% interval contains 0 or its upper end < 0.02
+learned_kappa: 0.05                 # "learns the true signal": one-sided 95% lower bound of kappa_clean >= this, per signal
+signals: [ind, ev]
+d128_tag: _g                        # existing D-128 runs (configs/nc_grid.yaml): same splits, same SB draw, k3s RTX 5080
+stage1:
+  base: reve_nc                     # VERA (D-128 run, tag _g) = n4_mode dcov: patch pooling + d x d covariance over channels
+  variants: {pf: reve_nc_pf, npd: reve_nc_npd, npf: reve_nc_npf, cc: reve_nc_cc}
+  # 2 x 2 factorial: patch pooling (pool / nopool) x channel aggregation (dcov / flat); cc is the extra arm
+  cells: {pool_dcov: base, pool_flat: pf, nopool_dcov: npd, nopool_flat: npf}
+  tests:                            # one-sided, Holm over the five; > 0 means the change raises kappa_clean
+    T1_agg_ind:  {signal: ind, plus: [pool_flat, nopool_flat], minus: [pool_dcov, nopool_dcov]}   # predicted: rejects
+    T2_pool_ev:  {signal: ev,  plus: [nopool_dcov, nopool_flat], minus: [pool_dcov, pool_flat]}   # predicted: rejects
+    T3_agg_ev:   {signal: ev,  plus: [pool_flat, nopool_flat], minus: [pool_dcov, nopool_dcov]}   # no prediction
+    T4_pool_ind: {signal: ind, plus: [nopool_dcov, nopool_flat], minus: [pool_dcov, pool_flat]}   # no prediction
+    T5_ccov_ind: {signal: ind, plus: [cc], minus: [pool_dcov]}                                    # predicted: rejects
+  # selection for stage 2: among pf, npd, npf, cc that learn both signals (learned_kappa) and pass G0 on both clean
+  # conditions, the largest mean of kappa_ind and kappa_ev (point estimates rounded to 3 decimals); ties -> the earlier
+  # entry of tie_order (smaller head input for PhysioNet-MI: d(d+1)/2 = 136, C x d = 1024, C(C+1)/2 = 2080, C x P x d = 4096)
+  tie_order: [npd, pf, cc, npf]
+stage2:
+  vera: 'reve_nc_{sel}'             # VERA with the selected head (tag _n4)
+  reve_head: 'reve_h_{sel}'         # the same head on REVE without N1-N3 (tag _n4)
+  others: [eegnet, reve_official]   # D-128 grid runs (tag _g)
+  shortcut: c123
+  seeds: [0, 1, 2]
+  # primary: relative reliance R_rel = mean over signals of (kappa_clean - kappa_c123) / kappa_clean, seed means
+  # tests (one-sided, Holm over three): R_rel(other) - R_rel(VERA-sel) > 0 for eegnet, reve_official, reve_h_{sel}
+  sesoi_rel: 0.10                   # N1-N3 contrast: two-sided 90% interval inside (-0.10, 0.10) -> "no effect of 0.10 or more"
+  validity_margin_abs: 0.02         # D-128 rule (b) for the absolute R, reported next to the primary result
+  report_task: physionet_mi         # report only: real labels, seed 0, VERA-sel vs VERA and REVE-Official (D-128 runs)

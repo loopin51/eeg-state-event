@@ -1,6 +1,6 @@
 """D-128 DE+LR baseline (CLAUDE.md: before any new-model number) on the splits of scripts/nc_train.py.
 
-usage: env/bin/python scripts/nc_baseline_de.py configs/nc_train.yaml --task <task> [--sb <sb name>] [--shuffle-seeds 5]
+usage: env/bin/python scripts/nc_baseline_de.py configs/nc_train.yaml --task <task> [--sb <sb name>] [--shuffle-seeds 5] [--out <path>]
 
 Features: differential entropy 0.5 log(2 pi e var) of every channel in the N1 bands (FACED: 5 bands) of the task window;
 standardised on the training windows; multinomial logistic regression (L2, C from configs `baseline.C`). Training uses the
@@ -35,7 +35,9 @@ def fit_predict(Ftr, ytr, Fte, C):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--task', required=True); ap.add_argument('--sb')
-    ap.add_argument('--shuffle-seeds', type=int, default=5); a = ap.parse_args()
+    ap.add_argument('--shuffle-seeds', type=int, default=5)
+    ap.add_argument('--out', help='output path relative to the project root (default results/baselines/nc_<task>[_<sb>]_de.json)')
+    a = ap.parse_args()
     c = yaml.safe_load(open(os.path.join(ROOT, a.config))); C = c['baseline']['C']; t0 = time.time()
     c['tasks'][a.task]['null'] = False                      # task windows only
     sb = c['sb'][a.sb] if a.sb else None; d = TaskData(c, a.task, torch.device('cpu'), sb=sb)
@@ -57,7 +59,7 @@ def main():
         if k == 'real': res['real'] = row
         else: res['shuffle'][k] = row
     res['seconds'] = round(time.time() - t0, 1)
-    out = os.path.join(ROOT, 'results', 'baselines', f"nc_{a.task}{'_' + a.sb if a.sb else ''}_de.json"); os.makedirs(os.path.dirname(out), exist_ok=True)
+    out = os.path.join(ROOT, a.out) if a.out else os.path.join(ROOT, 'results', 'baselines', f"nc_{a.task}{'_' + a.sb if a.sb else ''}_de.json"); os.makedirs(os.path.dirname(out), exist_ok=True)
     json.dump(res, open(out, 'w'), indent=1); print(json.dumps(dict(written=out, real=res['real']['pooled'], seconds=res['seconds'])), flush=True)
 
 

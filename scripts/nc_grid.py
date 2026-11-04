@@ -8,18 +8,29 @@ usage: python scripts/nc_grid.py configs/nc_grid.yaml list   [--group h1]       
 A run is identified by (task, sb, arm, shuffle, seed); its folder is <date>_nc_<task>[_<sb>]_<arm>[_shuf]_s<seed>_g with
 metrics.json once finished. --todo DIR leaves out runs that already have a finished folder in DIR. Runs are listed in
 the order of the items (main seeds first), which is the submission order.
+D-129 grids (configs/n4fix_grid.yaml) set `tag:` (folder suffix instead of _g) and may name the arm `{sel}` / `reve_h_{sel}`
+etc.: the placeholder is filled from the stage-1 selection file (`selection:`, written by scripts/n4fix_verdict.py), and
+the items of such a group are not listed until that file exists.
 """
-import os, sys, glob, argparse, shlex
+import os, sys, glob, json, argparse, shlex
 import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TAG = '_g'
 
 
+def selected(g):
+    p = g.get('selection'); p = p and os.path.join(ROOT, p)
+    return json.load(open(p))['selected'] if p and os.path.exists(p) else None
+
+
 def runs(g):
-    out, seen = [], set()
+    out, seen = [], set(); tag, sel = g.get('tag', TAG), selected(g)
     for gname, grp in g['groups'].items():
         for it in grp['items']:
+            if any('{sel}' in x for x in it['arms']):
+                if not sel: continue                 # stage-2 items wait for the stage-1 selection
+                it = dict(it, arms=[x.replace('{sel}', sel) for x in it['arms']])
             tasks = it['task'] if isinstance(it['task'], list) else [it['task']]
             for seed in g['seeds'][it['seeds']]:
                 for task in tasks:
@@ -30,12 +41,12 @@ def runs(g):
                             seen.add(key)
                             data = it.get('data', grp.get('data'))
                             data = data.get(task) if isinstance(data, dict) else data
-                            out.append(dict(group=gname, task=task, sb=sb, arm=arm, shuffle=key[3], seed=seed, data=data))
+                            out.append(dict(group=gname, task=task, sb=sb, arm=arm, shuffle=key[3], seed=seed, data=data, tag=tag))
     return out
 
 
 def folder(r):
-    return f"_nc_{r['task']}{'_' + r['sb'] if r['sb'] else ''}_{r['arm']}{'_shuf' if r['shuffle'] else ''}_s{r['seed']}{TAG}"
+    return f"_nc_{r['task']}{'_' + r['sb'] if r['sb'] else ''}_{r['arm']}{'_shuf' if r['shuffle'] else ''}_s{r['seed']}{r.get('tag', TAG)}"
 
 
 def done(r, runs_dir):
@@ -44,11 +55,11 @@ def done(r, runs_dir):
 
 def command(g, r):
     return (f"python scripts/nc_train.py {g['train_config']} --arm {r['arm']} --task {r['task']} --seed {r['seed']}"
-            f"{' --sb ' + r['sb'] if r['sb'] else ''}{' --shuffle' if r['shuffle'] else ''} --tag {TAG}")
+            f"{' --sb ' + r['sb'] if r['sb'] else ''}{' --shuffle' if r['shuffle'] else ''} --tag {r.get('tag', TAG)}")
 
 
 def k8s_label(r):
-    s = f"nc_g_{r['task']}{'_' + r['sb'] if r['sb'] else ''}_{r['arm']}{'_shuf' if r['shuffle'] else ''}_s{r['seed']}"
+    s = f"nc{r.get('tag', TAG)}_{r['task']}{'_' + r['sb'] if r['sb'] else ''}_{r['arm']}{'_shuf' if r['shuffle'] else ''}_s{r['seed']}"
     return s.replace('physionet_mi', 'pmi').replace('reve_official', 'rofc').replace('reve_nc', 'rnc').replace('_', '-')
 
 

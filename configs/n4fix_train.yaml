@@ -1,0 +1,180 @@
+# D-129 (docs/DECISIONS.md D-129, docs/09_vera_n4_plan.md): N4 sub-step variants of VERA (reve_nc) and the same heads on
+# REVE without N1-N3. Everything except the arms below comes from the D-128 frozen config (base_config, read-only): data,
+# splits, SB parameters and amplitudes, training schedule. Every arm keeps the VERA hyperparameters (reve_nc hp11); the
+# only change is nc.n4_mode (src/ese/model/reve_nc.py TangentHead) and, for reve_h_*, N1-N3 switched off.
+#   reve_nc_pf   pool_flat    attention pooling over patches kept, d x d covariance over channels -> flatten C x d
+#   reve_nc_npd  nopool_dcov  no patch pooling, d x d covariance over all C x P tokens kept
+#   reve_nc_npf  nopool_flat  neither: every token projected to d, flatten C x P x d
+#   reve_nc_cc   ccov         pooling kept, covariance taken over channels (C x C, shrinkage ccov_shrink) instead of d x d
+base_config: configs/nc_train_frozen.yaml
+arms:
+  reve_nc_pf:
+    model: reve
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    init: reve
+    nc:
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+      n4_mode: pool_flat
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11); D-129 n4_mode
+      pool_flat
+  reve_nc_npd:
+    model: reve
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    init: reve
+    nc:
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+      n4_mode: nopool_dcov
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11); D-129 n4_mode
+      nopool_dcov
+  reve_nc_npf:
+    model: reve
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    init: reve
+    nc:
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+      n4_mode: nopool_flat
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11); D-129 n4_mode
+      nopool_flat
+  reve_nc_cc:
+    model: reve
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    init: reve
+    nc:
+      adv_lambda: 0.0718017560538432
+      dropout: 0.13964144572748916
+      w_null: 0.12125253278388115
+      n4_mode: ccov
+      ccov_shrink: 0.1
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11); D-129 n4_mode
+      ccov
+  reve_h_pf:
+    model: reve
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    init: reve
+    nc:
+      n1: false
+      n2: false
+      n3: false
+      n4: true
+      n4_mode: pool_flat
+      dropout: 0.13964144572748916
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11); D-129 REVE
+      + N4 pool_flat, no N1-N3
+  reve_h_npd:
+    model: reve
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    init: reve
+    nc:
+      n1: false
+      n2: false
+      n3: false
+      n4: true
+      n4_mode: nopool_dcov
+      dropout: 0.13964144572748916
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11); D-129 REVE
+      + N4 nopool_dcov, no N1-N3
+  reve_h_npf:
+    model: reve
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    init: reve
+    nc:
+      n1: false
+      n2: false
+      n3: false
+      n4: true
+      n4_mode: nopool_flat
+      dropout: 0.13964144572748916
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11); D-129 REVE
+      + N4 nopool_flat, no N1-N3
+  reve_h_cc:
+    model: reve
+    probe_epochs: 5
+    lora:
+      r: 4
+      alpha: 16
+      dropout: 0.0
+    train:
+      mixup_alpha: 0.0
+      lr_encoder: 5.688543083512948e-05
+      lr_head: 0.002434053179916413
+      weight_decay: 0.00025727438643473663
+    init: reve
+    nc:
+      n1: false
+      n2: false
+      n3: false
+      n4: true
+      n4_mode: ccov
+      ccov_shrink: 0.1
+      dropout: 0.13964144572748916
+    frozen_from: reve_nc hp11 (2026-10-30_nc_cho2017_reve_nc_s0_hp11); D-129 REVE
+      + N4 ccov, no N1-N3

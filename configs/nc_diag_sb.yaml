@@ -1,0 +1,25 @@
+# D-128 post-hoc diagnosis of the H1 SB result (docs/DECISIONS.md D-128, last bullet "H1 뒤 사후 진단", 2026-11-04).
+# Outside the verdict family: nothing here feeds scripts/nc_verdict.py. Used by scripts/nc_diag_sb.py:
+#   --mode init     diagnosis 1: VERA (arm reve_nc) built with REVE weights exactly as nc_train.py builds it, no training
+#   --mode trained  diagnosis 2: models retrained by `nc_train.py configs/nc_train_frozen.yaml --save-ckpt --tag _diag`
+train_config: configs/nc_train_frozen.yaml   # data, splits, SB parameters, model hyperparameters (read-only)
+task: physionet_mi
+conditions: [ind_clean, ev_clean]
+seed: 0                   # nc_train --seed: fold seed of fold f is 1000*seed+f; the init network uses the fold-0 torch seed
+init_arm: reve_nc         # VERA; its encoder and query context are identical to -N4 at initialisation (LoRA B = 0)
+trained_arms: [reve_nc, reve_nc_m4]
+trained_run_glob: '*_nc_{task}_{cond}_{arm}_s{seed}_diag'   # newest match under runs_dir with ckpt_fold<k>.pt files
+batch: 64
+out_dir: results/nc/diag_sb
+features:
+  rp_dim: 8192            # tok_flat_rp: Gaussian random projection of [ctx, all tokens] (the -N4 head input, 131,584 dims)
+  rp_seed: 20261290
+  tangent_pca_dims: [16, 32]   # tangent_pca<d>: pooled channel tokens projected on the top-d PCs (training windows of the fold)
+  pca_fit_windows: 2000
+  raw_cov_band: [8, 30]   # raw_cov: tangent vector of the input channel covariance in this band (input-level reference)
+  raw_erp_band: [1, 8]    # raw_erp: input low-passed to this band, 100 ms bin means (input-level reference)
+  raw_erp_bin: 20
+probe:                    # multinomial logistic regression (L2), standardised features, full-batch L-BFGS
+  C_grid: [0.001, 0.01, 0.1, 1.0]   # chosen by balanced accuracy on the fold's inner-validation subjects, then refit on train+val
+  max_iter: 500
+  shuffle_seeds: 2        # label-shuffle control: labels permuted within each train/val subject, whole pipeline repeated

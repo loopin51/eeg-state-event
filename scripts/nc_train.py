@@ -170,6 +170,9 @@ class EEGNetNC(nn.Module):
 
 def build(c, arm, d, n_subjects, dev):
     nc = {**c['nc_defaults'], **arm.get('nc', {})}; nc['bands'] = d.bands
+    if nc.get('n4_mode', 'dcov') != 'dcov':                  # D-129 N4 variants need the token grid size (C channels, P patches)
+        e = c['reve'][arm.get('size', 'base')]['encoder']; step = e['patch_size'] - e['patch_overlap']
+        nc['n_chans'], nc['n_patches'] = d.x.shape[1], (d.x.shape[2] - e['patch_size']) // step + 1
     if arm['model'] == 'eegnet':
         return EEGNetNC(d.x.shape[1], d.x.shape[2], d.K, nc, n_subjects).to(dev), nc
     from safetensors.torch import load_file
@@ -369,6 +372,16 @@ def run_fold(c, arm, d, f, tr, va, te, dev, seed, shuffle, smoke, ckpt_path=None
     return res, hist, pred
 
 
+def load_config(path):
+    """YAML config; `base_config: <path>` (D-129) reads that file first, adds this file's arms and overrides its other
+    top-level keys. The base file is not modified, so a frozen config stays byte-identical and its arms unchanged."""
+    c = yaml.safe_load(open(os.path.join(ROOT, path)))
+    if 'base_config' not in c: return c
+    b = load_config(c['base_config']); clash = set(b['arms']) & set(c.get('arms', {}))
+    assert not clash, f'arms already in {c["base_config"]}: {sorted(clash)}'
+    return {**b, **{k: v for k, v in c.items() if k != 'arms'}, 'arms': {**b['arms'], **c.get('arms', {})}}
+
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('config'); ap.add_argument('--arm', required=True); ap.add_argument('--task', required=True)
     ap.add_argument('--seed', type=int, default=0); ap.add_argument('--shuffle', action='store_true'); ap.add_argument('--folds')
@@ -376,7 +389,7 @@ def main():
     ap.add_argument('--tag', default='')
     ap.add_argument('--save-ckpt', action='store_true', help='save the scored model of every fold as ckpt_fold<k>.pt (diagnosis only)')
     a = ap.parse_args()
-    c = yaml.safe_load(open(os.path.join(ROOT, a.config))); arm = copy.deepcopy(c['arms'][a.arm])
+    c = load_config(a.config); arm = copy.deepcopy(c['arms'][a.arm])
     for kv in a.hp:                              # dotted overrides, e.g. train.lr_head=3e-4 nc.adv_lambda=0.3
         k, v = kv.split('='); node = arm; ks = k.split('.')
         for q in ks[:-1]: node = node.setdefault(q, {})

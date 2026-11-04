@@ -1,0 +1,24 @@
+# D-129 grid (docs/09_vera_n4_plan.md §4). scripts/nc_grid.py turns each item into runs of scripts/nc_train.py with
+# configs/n4fix_train.yaml (= D-128 frozen config + the N4 variant arms). One GPU type: k3s RTX 5080, as the D-128 H1
+# runs of EEGNet, REVE-Official and VERA that this experiment compares with (configs/nc_grid.yaml, folder suffix _g).
+# Stage-2 arms carry the placeholder {sel}: filled from `selection` (scripts/n4fix_verdict.py --stage 1 writes it by the
+# registered rule) and not listed before that file exists.
+train_config: configs/n4fix_train.yaml
+tag: _n4
+selection: results/n4fix/selection.json
+seeds: {main: [0, 1, 2], report: [0]}
+groups:
+  s1:                                        # stage 1: which N4 sub-step blocks the SB true signal (clean conditions)
+    runner: k3s
+    data: nc_pmi
+    items:
+      - {task: physionet_mi, sb: [ind_clean, ev_clean], arms: [reve_nc_pf, reve_nc_npd, reve_nc_npf, reve_nc_cc], seeds: report}
+      - {task: physionet_mi, sb: [ind_clean, ev_clean], arms: [reve_nc_pf, reve_nc_npd, reve_nc_npf, reve_nc_cc], seeds: report, shuffle: true}
+  s2:                                        # stage 2: H1 retest with the selected head, with and without N1-N3
+    runner: k3s
+    data: nc_pmi
+    items:
+      - {task: physionet_mi, sb: [ind_clean, ind_c123, ev_clean, ev_c123], arms: ['reve_nc_{sel}', 'reve_h_{sel}'], seeds: main}
+      - {task: physionet_mi, sb: [ind_clean, ev_clean], arms: ['reve_h_{sel}'], seeds: report, shuffle: true}
+      - {task: physionet_mi, arms: ['reve_nc_{sel}'], seeds: report}                  # report only: real PhysioNet-MI labels
+      - {task: physionet_mi, arms: ['reve_nc_{sel}'], seeds: report, shuffle: true}
